@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+// Version 1.0.1 - Forced redeploy after Vercel/GitHub sync error
 import { Routes, Route, HashRouter, Navigate, useLocation } from 'react-router-dom';
 import { Analytics } from "@vercel/analytics/react";
 import Layout from './components/Layout';
