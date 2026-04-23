@@ -1,13 +1,11 @@
 import { supabase } from '../supabaseClient';
+import { adminSelect } from '../supabaseAdmin';
 import { FleetUnit, Driver, Administrator } from './types';
 
 // --- Fleet Units ---
 export const getUnits = async (): Promise<FleetUnit[]> => {
-    const { data, error } = await supabase.from('units').select('*');
-    if (error) {
-        console.error('Error fetching units:', error);
-        return [];
-    }
+    const data = await adminSelect('units');
+    if (!data || data.length === 0) return [];
 
     return data.map((u: any) => ({
         id: u.id,
@@ -95,11 +93,8 @@ export const deleteUnit = async (id: string): Promise<{ success: boolean, messag
 
 // --- Drivers ---
 export const getDrivers = async (): Promise<Driver[]> => {
-    const { data, error } = await supabase.from('drivers').select('*');
-    if (error) {
-        console.error('Error fetching drivers:', error);
-        return [];
-    }
+    const data = await adminSelect('drivers');
+    if (!data || data.length === 0) return [];
 
     return data.map((d: any) => ({
         id: d.id,

@@ -1,19 +1,11 @@
 import { supabase } from '../supabaseClient';
+import { adminSelect } from '../supabaseAdmin';
 import { Business } from './types';
 
 // --- Businesses ---
 export const getBusinesses = async (): Promise<Business[]> => {
-    const { data, error } = await supabase
-        .from('businesses')
-        .select(`
-            *,
-            parent:businesses!parent_id(name)
-        `);
-
-    if (error) {
-        console.error('Error fetching businesses:', error);
-        return [];
-    }
+    const data = await adminSelect('businesses');
+    if (!data || data.length === 0) return [];
     return data.map((b: any) => ({
         id: b.id,
         name: b.name,
