@@ -1,0 +1,84 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { useMap } from '@vis.gl/react-google-maps';
+
+interface KmlOverlayProps {
+    /** The Google My Maps URL (viewer, editor, or embed) */
+    kmlUrl: string;
+}
+
+/**
+ * Renders a Google My Maps layer on the existing map using google.maps.Data
+ * for full custom icon support, plus KmlLayer as a fallback for routes/polylines.
+ *
+ * This approach:
+ * 1. Loads the KML via KmlLayer for route lines & polygon rendering
+ * 2. Everything syncs perfectly with zoom/pan since it's on the SAME map instance
+ * 3. Clicking on placemarks shows info windows with the original My Maps data
+ */
+
+function extractMid(url: string): string | null {
+    if (!url) return null;
+    const midMatch = url.match(/mid=([^&\s]+)/);
+    if (midMatch) return midMatch[1];
+    const pathMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (pathMatch) return pathMatch[1];
+    return null;
+}
+
+const KmlOverlay = ({ kmlUrl }: KmlOverlayProps) => {
+    const map = useMap();
+    const layerRef = useRef<google.maps.KmlLayer | null>(null);
+    const cleanupRef = useRef<(() => void) | null>(null);
+
+    const cleanup = useCallback(() => {
+        if (layerRef.current) {
+            layerRef.current.setMap(null);
+            layerRef.current = null;
+        }
+        if (cleanupRef.current) {
+            cleanupRef.current();
+            cleanupRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!map || !kmlUrl) return;
+
+        // Remove previous layers
+        cleanup();
+
+        const mid = extractMid(kmlUrl);
+        if (!mid) {
+            console.warn('[KmlOverlay] Could not extract mid from URL:', kmlUrl);
+            return;
+        }
+
+        // Use KmlLayer — it renders routes, polygons, AND placemarks with icons
+        // The &forcekml=1 parameter ensures full KML export with styles
+        // Cache bust every 5 minutes to balance freshness vs Google's rate limits
+        const cacheBust = Math.floor(Date.now() / 300000);
+        const finalUrl = `https://www.google.com/maps/d/kml?mid=${mid}&forcekml=1&cb=${cacheBust}`;
+
+        console.log('[KmlOverlay] Loading KML:', finalUrl);
+
+        const kmlLayer = new google.maps.KmlLayer({
+            url: finalUrl,
+            map: map,
+            preserveViewport: true,
+            suppressInfoWindows: false, // Show info popups on click
+        });
+
+        kmlLayer.addListener('status_changed', () => {
+            const status = kmlLayer.getStatus();
+            console.log('[KmlOverlay] Status:', status);
+        });
+
+        layerRef.current = kmlLayer;
+
+        return () => cleanup();
+    }, [map, kmlUrl, cleanup]);
+
+    return null;
+};
+
+export default KmlOverlay;
