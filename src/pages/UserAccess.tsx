@@ -21,7 +21,7 @@ const UserAccess = () => {
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [newUserEmail, setNewUserEmail] = useState('');
     const [newUserName, setNewUserName] = useState('');
-    // Password state removed as per request - OAuth mandatory
+    const [newUserPassword, setNewUserPassword] = useState('');
     const [newUserRole, setNewUserRole] = useState<'Administrador' | 'Usuario' | 'Chofer'>('Usuario');
     const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
     const [selectedDriverId, setSelectedDriverId] = useState<string>('');
@@ -86,13 +86,14 @@ const UserAccess = () => {
             }
         }
 
-        // We pass undefined for password to skip Auth creation (OAuth will handle authentication)
-        const success = await addAllowedUser(newUserEmail, undefined, newUserRole, finalBusinessId || undefined, newUserName || undefined, newUserRole === 'Chofer' ? selectedDriverId || undefined : undefined);
+        // Pass password to create Auth account in Supabase
+        const success = await addAllowedUser(newUserEmail, newUserPassword || undefined, newUserRole, finalBusinessId || undefined, newUserName || undefined, newUserRole === 'Chofer' ? selectedDriverId || undefined : undefined);
 
         if (success) {
-            setNotification({ msg: 'Acceso otorgado correctamente. El usuario deberá iniciar sesión con Google/Microsoft.', type: 'success' });
+            setNotification({ msg: 'Acceso otorgado correctamente.' + (newUserPassword ? ' El usuario ya puede iniciar sesión con su contraseña.' : ' El usuario deberá iniciar sesión con Google/Microsoft.'), type: 'success' });
             setNewUserEmail('');
             setNewUserName('');
+            setNewUserPassword('');
             setNewUserRole('Usuario');
             setSelectedBusinessId('');
             setSelectedDriverId('');
@@ -236,6 +237,17 @@ const UserAccess = () => {
                                 onChange={(e) => setNewUserName(e.target.value)}
                                 className="block w-full rounded-lg border-gray-300 px-4 py-2.5 text-sm font-medium shadow-sm focus:border-primary focus:ring-primary"
                                 placeholder="Ej: Juan Pérez"
+                            />
+                        </div>
+
+                        <div className="w-full md:w-48">
+                            <label className="block text-xs font-bold text-[#636388] mb-1 uppercase tracking-wide">Contraseña (Opcional)</label>
+                            <input
+                                type="password"
+                                value={newUserPassword}
+                                onChange={(e) => setNewUserPassword(e.target.value)}
+                                className="block w-full rounded-lg border-gray-300 px-4 py-2.5 text-sm font-medium shadow-sm focus:border-primary focus:ring-primary"
+                                placeholder="Min. 6 caracteres"
                             />
                         </div>
 
