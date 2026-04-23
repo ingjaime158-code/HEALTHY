@@ -142,23 +142,27 @@ const Login = () => {
       });
 
       if (authError) {
-        setError('Usuario o contraseña incorrectos.');
+        setError(`Error: ${authError.message === 'Invalid login credentials' ? 'Usuario o contraseña incorrectos.' : authError.message}`);
         recordLoginAttempt();
         return;
       }
 
       if (data.session) {
+        const authenticatedEmail = data.session.user.email;
         const { allowed } = await validateCurrentSession();
+        
         if (allowed) {
           resetLoginAttempts();
           navigate('/monitor');
         } else {
-          setError('Este usuario no tiene permisos de acceso.');
+          setError(`Acceso denegado: El correo "${authenticatedEmail}" está autenticado pero no tiene permisos en la tabla de usuarios autorizados.`);
           recordLoginAttempt();
+          // Cerrar sesión si no está autorizado para evitar estados inconsistentes
+          await supabase.auth.signOut();
         }
       }
     } catch (err) {
-      setError('Error de conexión con el servidor.');
+      setError('Error inesperado al intentar iniciar sesión.');
     } finally {
       setLoading(false);
     }
