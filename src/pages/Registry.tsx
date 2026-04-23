@@ -1257,27 +1257,52 @@ const Registry = () => {
                             )}
 
                             {activeTab === 'maps' && (
-                                <form onSubmit={handleMapSubmit} className="p-6 flex flex-col gap-4">
-                                    <div className="hidden">
-                                        <label className="block text-xs font-bold text-[#636388] mb-1">Nombre de la Ruta / Mapa</label>
-                                        <input type="text" className="w-full rounded-lg border-gray-300 text-sm" value={mapForm.name} onChange={e => setMapForm({ ...mapForm, name: e.target.value })} placeholder="Ej. Ruta Centro Matutina" />
+                                <form onSubmit={handleMapSubmit} className="p-6 flex flex-col gap-5">
+                                    <div>
+                                        <label className="block text-xs font-bold text-[#636388] mb-2 uppercase tracking-wide">Nombre de la Ruta / Identificador</label>
+                                        <div className="flex items-center gap-3 px-4 h-12 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+                                            <span className="material-symbols-outlined text-gray-400">edit_note</span>
+                                            <input 
+                                                required 
+                                                type="text" 
+                                                className="flex-1 bg-transparent border-none outline-none text-sm text-[#111118]" 
+                                                value={mapForm.name} 
+                                                onChange={e => setMapForm({ ...mapForm, name: e.target.value })} 
+                                                placeholder="Ej. Mapas Maestros Mty" 
+                                            />
+                                        </div>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-[#636388] mb-1">Link Mapa Matutino</label>
-                                        <div className="flex gap-2">
+                                        <label className="block text-xs font-bold text-[#636388] mb-2 uppercase tracking-wide">Link Mapa Matutino</label>
+                                        <div className="flex items-center gap-3 px-4 h-12 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
                                             <span className="material-symbols-outlined text-purple-400">map</span>
-                                            <input type="text" className="flex-1 rounded-lg border-gray-300 text-sm" value={mapForm.morningMapUrl} onChange={e => setMapForm({ ...mapForm, morningMapUrl: e.target.value })} placeholder="https://www.google.com/maps/d/..." />
+                                            <input 
+                                                type="url" 
+                                                className="flex-1 bg-transparent border-none outline-none text-sm text-[#111118]" 
+                                                value={mapForm.morningMapUrl} 
+                                                onChange={e => setMapForm({ ...mapForm, morningMapUrl: e.target.value })} 
+                                                placeholder="https://www.google.com/maps/d/..." 
+                                            />
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-[#636388] mb-1">Link Mapa Vespertino</label>
-                                        <div className="flex gap-2">
+                                        <label className="block text-xs font-bold text-[#636388] mb-2 uppercase tracking-wide">Link Mapa Vespertino</label>
+                                        <div className="flex items-center gap-3 px-4 h-12 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10 transition-all">
                                             <span className="material-symbols-outlined text-orange-400">map</span>
-                                            <input type="text" className="flex-1 rounded-lg border-gray-300 text-sm" value={mapForm.eveningMapUrl} onChange={e => setMapForm({ ...mapForm, eveningMapUrl: e.target.value })} placeholder="https://www.google.com/maps/d/..." />
+                                            <input 
+                                                type="url" 
+                                                className="flex-1 bg-transparent border-none outline-none text-sm text-[#111118]" 
+                                                value={mapForm.eveningMapUrl} 
+                                                onChange={e => setMapForm({ ...mapForm, eveningMapUrl: e.target.value })} 
+                                                placeholder="https://www.google.com/maps/d/..." 
+                                            />
                                         </div>
                                     </div>
-                                    <button type="submit" className="mt-2 w-full bg-primary hover:bg-primary-hover text-white font-bold py-2.5 rounded-lg transition-colors">
-                                        {editingId ? 'Guardar Cambios' : 'Registrar Mapa'}
+                                    <button 
+                                        type="submit" 
+                                        className="mt-2 w-full h-12 bg-[#0a0a33] hover:bg-[#0a0a33]/90 text-white font-bold rounded-xl transition-all shadow-lg active:scale-[0.98]"
+                                    >
+                                        {editingId ? 'Guardar Cambios' : 'Registrar Mapas'}
                                     </button>
                                 </form>
                             )}
