@@ -431,14 +431,12 @@ const FleetMonitor = () => {
     }, []);
 
     // ── Smooth GPS tracking with LERP interpolation ──────────────────────────
-    // Include BOTH trip-assigned drivers AND delivery route drivers
+    // Include ALL drivers defined in the system to ensure we listen for their signal
     const activeDriverIds = useMemo(
         () => {
-            const tripDriverIds = activeTrips.map(t => t.driverId).filter(Boolean) as string[];
-            const routeDriverIds = routeDrivers.map(d => d.driverId).filter(Boolean) as string[];
-            return [...new Set([...tripDriverIds, ...routeDriverIds])];
+            return drivers.map(d => d.id).filter(Boolean);
         },
-        [activeTrips, routeDrivers]
+        [drivers]
     );
     const realtimePositions = useRealtimeTracking(activeDriverIds);
 
