@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { adminCreateAuthUser } from './supabaseAdmin';
 
 export interface User {
     email: string;
@@ -110,16 +111,12 @@ export const addAllowedUser = async (email: string, password: string | undefined
         return false;
     }
 
-    // Only attempt Auth creation if a password is provided (Legacy/Direct Login)
+    // Use Admin API to create user with auto-confirm enabled
     if (password) {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-            email,
-            password,
-        });
-
-        if (authError && !authError.message.includes('already registered')) {
-            console.error("Auth creation failed:", authError);
-            return false;
+        const authData = await adminCreateAuthUser(email, password);
+        // We don't block if adminCreateAuthUser fails (it might be because user already exists in Auth but not in allowed_users)
+        if (!authData) {
+            console.warn("Auth creation via Admin API skipped or failed (User might already exist in Auth).");
         }
     }
 

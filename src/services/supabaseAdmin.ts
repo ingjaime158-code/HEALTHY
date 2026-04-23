@@ -63,3 +63,30 @@ export async function adminUpdate(table: string, id: string, data: any): Promise
     }
     return true;
 }
+
+/**
+ * Creates a user in Supabase Auth using the service_role key.
+ * This bypasses email confirmation requirements.
+ */
+export async function adminCreateAuthUser(email: string, password: string): Promise<{ id: string } | null> {
+    const url = `${supabaseUrl}/auth/v1/admin/users`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            email,
+            password,
+            email_confirm: true, // AUTO-CONFIRM email
+        }),
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        // If user already exists, it might return an error, but we want to know the ID if possible
+        console.warn(`[adminCreateAuthUser] error or already exists:`, res.status, err);
+        return null;
+    }
+
+    const data = await res.json();
+    return { id: data.id };
+}
