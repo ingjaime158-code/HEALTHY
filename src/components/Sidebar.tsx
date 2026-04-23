@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { logout, getCurrentUser, getCurrentUserRole, getCurrentUserName, getCurrentUserAllowedViews } from '../services/authService';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeMobile?: () => void }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const userEmail = getCurrentUser();
@@ -10,8 +10,13 @@ const Sidebar = () => {
   const [userName, setUserName] = useState(getCurrentUserName());
   const [allowedViews, setAllowedViews] = useState<string[]>(getCurrentUserAllowedViews());
 
-  // State for sidebar collapse (minimized mode)
+  // State for sidebar collapse (minimized mode) - only for desktop
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    if (closeMobile) closeMobile();
+  }, [location.pathname]);
 
   // State for collapsible sections (true = open)
   const [sections, setSections] = useState({
@@ -69,12 +74,14 @@ const Sidebar = () => {
 
   return (
     <aside
-      className={`relative flex flex-col justify-between bg-[#051024] border-r border-white/10 shrink-0 transition-all duration-300 shadow-2xl z-50 h-[100vh] ${isCollapsed ? 'w-24' : 'w-64'}`}
+      className={`fixed md:relative flex flex-col justify-between bg-[#051024] border-r border-white/10 shrink-0 transition-all duration-300 shadow-2xl z-50 h-screen 
+        ${isOpenMobile ? 'left-0' : 'left-[-100%] md:left-0'} 
+        ${isCollapsed ? 'md:w-24' : 'md:w-64'} w-72`}
     >
-      {/* Edge Toggle Button */}
+      {/* Edge Toggle Button (Desktop Only) */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-8 z-50 bg-[#051024] border border-white/20 text-white rounded-full p-1 shadow-lg hover:bg-white/10 transition-colors flex items-center justify-center w-6 h-6"
+        className="hidden md:flex absolute -right-3 top-8 z-50 bg-[#051024] border border-white/20 text-white rounded-full p-1 shadow-lg hover:bg-white/10 transition-colors items-center justify-center w-6 h-6"
         title={isCollapsed ? "Expandir" : "Contraer"}
       >
         <span className="material-symbols-outlined text-[14px] font-bold">
