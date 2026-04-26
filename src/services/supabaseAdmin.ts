@@ -7,9 +7,12 @@
  */
 
 const getHeaders = () => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE || import.meta.env.VITE_SUPABASE_SERVICE_ROL;
     
+    if (!supabaseServiceKey) {
+        throw new Error("ALERTA CRÍTICA: No se encontró la llave VITE_SUPABASE_SERVICE_ROLE en las variables de entorno. Supabase está bloqueando la descarga de datos.");
+    }
+
     return {
         'apikey': supabaseServiceKey,
         'Authorization': `Bearer ${supabaseServiceKey}`,

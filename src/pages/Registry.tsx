@@ -30,6 +30,7 @@ const Registry = () => {
     const [administrators, setAdministrators] = useState<Administrator[]>([]);
     const [maps, setMaps] = useState<RouteMap[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -111,18 +112,24 @@ const Registry = () => {
     }, [tab, action, id, loading, businesses, units, drivers, administrators, maps]);
 
     const refreshData = async () => {
-        const [b, u, d, a, m] = await Promise.all([
-            getBusinesses(),
-            getUnits(),
-            getDrivers(),
-            getAdministrators(),
-            getRouteMaps()
-        ]);
-        setBusinesses(b);
-        setUnits(u);
-        setDrivers(d);
-        setAdministrators(a);
-        setMaps(m);
+        try {
+            setFetchError(null);
+            const [b, u, d, a, m] = await Promise.all([
+                getBusinesses(),
+                getUnits(),
+                getDrivers(),
+                getAdministrators(),
+                getRouteMaps()
+            ]);
+            setBusinesses(b);
+            setUnits(u);
+            setDrivers(d);
+            setAdministrators(a);
+            setMaps(m);
+        } catch (err: any) {
+            console.error('Data fetch error:', err);
+            setFetchError(`Error cargando datos: ${err.message || 'Error desconocido'}`);
+        }
     };
 
     const getCurrentTabPath = () => {
