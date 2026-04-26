@@ -102,8 +102,8 @@ export const getDrivers = async (): Promise<Driver[]> => {
         phoneNumber: d.phone || '',
         morningSheetUrl: d.morning_sheet_url || '',
         eveningSheetUrl: d.evening_sheet_url || '',
-        morningMyMapsUrl: d.morning_my_maps_url || '',
-        eveningMyMapsUrl: d.evening_my_maps_url || '',
+        morningMapUrl: d.morning_my_maps_url || d.morning_map_url || '',
+        eveningMapUrl: d.evening_my_maps_url || d.evening_map_url || '',
         password: d.password || '',
         unitId: d.unit_id
     }));
