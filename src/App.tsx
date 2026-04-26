@@ -70,7 +70,6 @@ const ClientConfirmation = React.lazy(() => import('./pages/ClientConfirmation')
 const Leads = React.lazy(() => import('./pages/Leads'));
 const Comercializadora = React.lazy(() => import('./pages/Comercializadora'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
-const Clients = React.lazy(() => import('./pages/Clients'));
 const GoogleSheetView = React.lazy(() => import('./pages/GoogleSheetView'));
 
 // Placeholder Sheet IDs - User should update these in .env or here
@@ -150,11 +149,7 @@ const App = () => {
                                     <UserAccess />
                                 </RoleGuard>
                             } />
-                            <Route path="/clients" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <Clients />
-                                </RoleGuard>
-                            } />
+
 
                             <Route path="/ruta-matutina" element={
                                 <RoleGuard allowedRoles={['Administrador', 'Usuario']}>

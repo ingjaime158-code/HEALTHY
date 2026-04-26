@@ -55,7 +55,6 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       title: 'Administración',
       items: [
         { to: "/access", icon: "admin_panel_settings", label: "Control de Acceso", roles: ['Administrador'] },
-        { to: "/clients", icon: "business", label: "Clientes", roles: ['Administrador'] },
         { to: "/registry/choferes", icon: "id_card", label: "Repartidores", roles: ['Administrador'] },
         { to: "/registry/mapas", icon: "map", label: "Mapas", roles: ['Administrador'] },
       ]

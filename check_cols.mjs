@@ -1,11 +1,28 @@
-import pg from 'pg';
-const { Client } = pg;
-const connectStr = 'postgresql://postgres.cgngdeaknmqvyprfayll:ctmguadalupe2025!!..@aws-0-us-west-1.pooler.supabase.com:6543/postgres';
-async function run() {
-    const c = new Client(connectStr);
-    await c.connect();
-    const res = await c.query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'trips'");
-    console.log(res.rows);
-    await c.end();
+import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+import path from 'path';
+
+// Manual env loading for .env.local
+const envPath = 'I:/APLICACIONES/PROYECTO HEALTHY DREAMS/frontend/.env.local';
+const envContent = fs.readFileSync(envPath, 'utf8');
+const env = {};
+envContent.split('\n').forEach(line => {
+    const [key, value] = line.split('=');
+    if (key && value) env[key.trim()] = value.trim();
+});
+
+const supabase = createClient(
+  env.VITE_SUPABASE_URL,
+  env.VITE_SUPABASE_SERVICE_ROLE
+);
+
+async function checkColumns() {
+  const { data: sample, error: sampleError } = await supabase.from('driver_locations').select('*').limit(1);
+  if (sampleError) {
+    console.error('Error:', sampleError);
+  } else {
+    console.log('Columnas encontradas:', Object.keys(sample[0] || {}));
+  }
 }
-run().catch(console.error);
+
+checkColumns();
