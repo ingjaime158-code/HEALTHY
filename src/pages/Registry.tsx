@@ -510,6 +510,19 @@ const Registry = () => {
                                     activeTab === 'maps' ? 'Gestiona los mapas de las rutas matutinas y vespertinas.' :
                                         'Gestiona los accesos de administradores del sistema.'}
                     </p>
+                    <div className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md inline-block w-fit">
+                        Datos recibidos: {
+                            activeTab === 'businesses' ? businesses.length :
+                            activeTab === 'units' ? units.length :
+                            activeTab === 'drivers' ? drivers.length :
+                            activeTab === 'maps' ? maps.length : administrators.length
+                        } registros.
+                    </div>
+                    {fetchError && (
+                        <div className="mt-2 p-3 bg-red-100 border border-red-300 text-red-700 font-bold rounded-lg max-w-2xl">
+                            {fetchError}
+                        </div>
+                    )}
                 </div>
                 <div className="flex gap-3">
                     <button
