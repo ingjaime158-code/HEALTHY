@@ -154,8 +154,21 @@ export async function fetchMasterSheetClients(
 // ── Fetch a driver's individual sheet to get the ORDEN mapping ───────────────
 
 /**
+ * Normalizes text to ignore accents, extra spaces, and case differences
+ * to improve matching between Master Sheet and Driver Sheets.
+ */
+function normalizeName(name: string): string {
+  if (!name) return '';
+  return name.toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[^\w\s]/gi, '') // Remove special characters
+    .replace(/\s+/g, ' ') // Collapse multiple spaces
+    .trim();
+}
+
+/**
  * Downloads a driver's individual route sheet and returns a Map of
- * uppercased client name → ORDEN number.
+ * normalized client name → ORDEN number.
  * Entries with ORDEN = 0 (PUNTO DE INICIO) are excluded.
  */
 async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number>> {
@@ -192,7 +205,7 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
     for (let i = 1; i < lines.length; i++) {
       const fields = parseCsvLine(lines[i].replace(/\r/g, ''));
       const orden = parseInt(fields[ordenIdx] || '', 10);
-      const nombre = (fields[nombreIdx] || '').trim().toUpperCase();
+      const nombre = normalizeName(fields[nombreIdx] || '');
 
       // Skip ORDEN 0 (PUNTO DE INICIO) and invalid entries
       if (isNaN(orden) || orden === 0 || !nombre) continue;
@@ -265,11 +278,20 @@ export async function buildDriverProgress(
   // 4. For each driver, fetch their individual sheet to get the correct ORDEN
   //    and apply it to the client list, skipping ORDEN 0 (PUNTO DE INICIO)
   for (const [driverName, clients] of driverMap) {
-    // Find matching DB driver
-    const dbDriver = driversDb.find(d =>
-      d.name.toUpperCase().includes(driverName) ||
-      driverName.includes(d.name.toUpperCase())
-    );
+    // Find matching DB driver - Strict match first
+    let dbDriver = driversDb.find(d => d.name.toUpperCase().trim() === driverName.toUpperCase().trim());
+    
+    if (!dbDriver) {
+        // Fallback: Pick the best partial match (closest length) to avoid 'BRAYAN' mapping to 'BRAYAN 2'
+        const partialMatches = driversDb.filter(d => 
+            d.name.toUpperCase().includes(driverName.toUpperCase().trim()) || 
+            driverName.toUpperCase().trim().includes(d.name.toUpperCase())
+        );
+        if (partialMatches.length > 0) {
+            partialMatches.sort((a, b) => Math.abs(a.name.length - driverName.length) - Math.abs(b.name.length - driverName.length));
+            dbDriver = partialMatches[0];
+        }
+    }
 
     // Get the driver's individual sheet URL
     const driverSheetUrl = dbDriver
@@ -283,11 +305,12 @@ export async function buildDriverProgress(
       if (orderMap.size > 0) {
         // Apply ORDEN from the driver's sheet to each client
         for (const client of clients) {
-          const driverOrder = orderMap.get(client.name.toUpperCase());
+          const normalizedClientName = normalizeName(client.name);
+          const driverOrder = orderMap.get(normalizedClientName);
           if (driverOrder !== undefined) {
             client.order = driverOrder;
           }
-          // If no match found, keep the original CSV row index as fallback
+          // If no match found, keep the original CSV row index as fallback (will likely send to bottom)
         }
       }
     }
@@ -300,18 +323,25 @@ export async function buildDriverProgress(
   const result: DriverRouteInfo[] = [];
 
   for (const [driverName, clients] of driverMap) {
-    // Match to DB driver (case-insensitive, partial match)
-    const dbDriver = driversDb.find(d =>
-      d.name.toUpperCase().includes(driverName) ||
-      driverName.includes(d.name.toUpperCase())
-    );
+    // Match to DB driver using same strict-first logic
+    let dbDriver = driversDb.find(d => d.name.toUpperCase().trim() === driverName.toUpperCase().trim());
+    if (!dbDriver) {
+        const partialMatches = driversDb.filter(d => 
+            d.name.toUpperCase().includes(driverName.toUpperCase().trim()) || 
+            driverName.toUpperCase().trim().includes(d.name.toUpperCase())
+        );
+        if (partialMatches.length > 0) {
+            partialMatches.sort((a, b) => Math.abs(a.name.length - driverName.length) - Math.abs(b.name.length - driverName.length));
+            dbDriver = partialMatches[0];
+        }
+    }
 
     // Get delivered clients from logs (match by driver name or ID)
     const driverLogs = logs.filter(log => {
       if (dbDriver && log.driver_id === dbDriver.id) return true;
       // Fallback: match by client name in case driver_id doesn't match
       return clients.some(c =>
-        c.name.toUpperCase() === (log.client_name || '').toUpperCase()
+        normalizeName(c.name) === normalizeName(log.client_name || '')
       );
     });
 
