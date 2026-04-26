@@ -27,7 +27,10 @@ const getHeaders = () => {
 export async function adminSelect(table: string, select = '*'): Promise<any[]> {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const url = `${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await fetch(url, { 
+        headers: getHeaders(),
+        cache: 'no-store'
+    });
     if (!res.ok) {
         console.error(`[adminSelect] ${table} error:`, res.status, await res.text());
         return [];
