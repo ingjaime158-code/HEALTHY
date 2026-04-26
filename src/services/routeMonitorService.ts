@@ -180,11 +180,12 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
 
     const header = parseCsvLine(lines[0]).map(h => h.toUpperCase().replace(/\r/g, '').trim());
 
-    const ordenIdx = header.findIndex(h => h === 'ORDEN' || h === 'ESTADO');
+    // Look specifically for ORDEN column
+    const ordenIdx = header.findIndex(h => h === 'ORDEN');
     const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
 
     if (ordenIdx === -1 || nombreIdx === -1) {
-      console.warn('[routeMonitor] Driver sheet missing ORDEN or NOMBRE column');
+      console.warn('[routeMonitor] Driver sheet missing ORDEN or NOMBRE column. Header:', header);
       return orderMap;
     }
 
@@ -291,7 +292,7 @@ export async function buildDriverProgress(
       }
     }
 
-    // Sort clients by order
+    // Sort clients by the order retrieved from the driver's individual sheet
     clients.sort((a, b) => a.order - b.order);
   }
 
