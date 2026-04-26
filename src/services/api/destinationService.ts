@@ -7,8 +7,8 @@ export const getRouteMaps = async (): Promise<RouteMap[]> => {
     return data.map((d: any) => ({
         id: d.id,
         name: d.name,
-        morningMapUrl: d.morning_my_maps_url || d.morning_map_url || '',
-        eveningMapUrl: d.evening_my_maps_url || d.evening_map_url || ''
+        morningMapUrl: d.morning_map_url || '',
+        eveningMapUrl: d.evening_map_url || ''
     }));
 };
 
