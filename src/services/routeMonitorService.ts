@@ -16,10 +16,10 @@ export interface RouteClient {
   order: number;
   name: string;
   phone: string;
-  address: string;
   locationLink: string;
   coords: string;
   repartidor: string;
+  isDelivered?: boolean;
 }
 
 export interface DriverRouteInfo {
@@ -322,10 +322,13 @@ export async function buildDriverProgress(
       deliveredNames.has(c.name.toUpperCase())
     ).length;
 
+    // Attach isDelivered flag to each client
+    for (const client of clients) {
+      client.isDelivered = deliveredNames.has(client.name.toUpperCase());
+    }
+
     // Find next pending client
-    const pendingClients = clients.filter(c =>
-      !deliveredNames.has(c.name.toUpperCase())
-    );
+    const pendingClients = clients.filter(c => !c.isDelivered);
     const currentClient = pendingClients.length > 0
       ? pendingClients[0].name
       : '';

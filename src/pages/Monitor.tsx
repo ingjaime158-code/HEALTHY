@@ -146,9 +146,14 @@ const FleetMonitor = () => {
     // --- Route Monitor State ---
     const [selectedRoute, setSelectedRoute] = useState<'morning' | 'evening' | null>(null);
     const [routeDrivers, setRouteDrivers] = useState<DriverRouteInfo[]>([]);
+    const [selectedDriverForDetails, setSelectedDriverForDetails] = useState<DriverRouteInfo | null>(null);
     const [loadingRoute, setLoadingRoute] = useState(false);
     const [showMyMap, setShowMyMap] = useState(false);
     const [myMapUrl, setMyMapUrl] = useState('');
+
+    useEffect(() => {
+        setSelectedDriverForDetails(null);
+    }, [selectedRoute]);
 
     // --- Nearest Base Assignment ---
     const [isDispatchOpen, setIsDispatchOpen] = useState(true);
@@ -1240,8 +1245,80 @@ const FleetMonitor = () => {
                         </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 scrollbar-hide">
-                        {/* Route Driver Cards */}
-                        {selectedRoute && routeDrivers.length > 0 ? (
+                        {/* Route Driver Cards or Driver Details */}
+                        {selectedDriverForDetails ? (
+                            <div className="flex flex-col gap-3 animate-in slide-in-from-right-4 duration-300 pb-6">
+                                {/* Back button and Driver Summary Header */}
+                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 shrink-0">
+                                    <button 
+                                        onClick={() => setSelectedDriverForDetails(null)}
+                                        className="flex items-center gap-1 text-gray-400 hover:text-white mb-3 transition-colors text-xs font-bold bg-white/5 hover:bg-white/10 px-2 py-1 rounded-md w-fit"
+                                    >
+                                        <span className="material-symbols-outlined text-[14px]">arrow_back</span>
+                                        Volver a Repartidores
+                                    </button>
+                                    
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-lg shrink-0"
+                                                style={{ backgroundColor: `${selectedDriverForDetails.colorHex || '#3B82F6'}30`, color: selectedDriverForDetails.colorHex || '#3B82F6', border: `1px solid ${selectedDriverForDetails.colorHex || '#3B82F6'}40` }}
+                                            >
+                                                {selectedDriverForDetails.driverName.substring(0, 2)}
+                                            </div>
+                                            <div>
+                                                <p className="text-white text-sm font-semibold tracking-tight">{selectedDriverForDetails.driverName}</p>
+                                                <p className="text-gray-500 text-[10px] font-medium">{selectedDriverForDetails.totalClients} clientes asignados</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between items-center mb-1.5">
+                                        <span className="text-gray-500 text-[10px] font-medium">
+                                            {selectedDriverForDetails.deliveredCount} de {selectedDriverForDetails.totalClients} entregas
+                                        </span>
+                                        <span className="text-emerald-400 text-[10px] font-bold">
+                                            {selectedDriverForDetails.totalClients > 0 ? Math.round((selectedDriverForDetails.deliveredCount / selectedDriverForDetails.totalClients) * 100) : 0}%
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full transition-all duration-500 ease-out"
+                                            style={{
+                                                width: `${selectedDriverForDetails.totalClients > 0 ? (selectedDriverForDetails.deliveredCount / selectedDriverForDetails.totalClients) * 100 : 0}%`,
+                                                backgroundColor: selectedDriverForDetails.colorHex || '#3B82F6',
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                                
+                                {/* Clients List */}
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider px-1 mb-1">
+                                        {selectedDriverForDetails.clients.length} CLIENTES EN RUTA
+                                    </p>
+                                    {selectedDriverForDetails.clients.map((client, cIdx) => (
+                                        <div key={cIdx} className="bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg p-3 flex items-start gap-3 transition-colors">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
+                                                {client.order || (cIdx + 1)}
+                                            </div>
+                                            <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
+                                                <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
+                                                    {client.name}
+                                                </p>
+                                                <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address}>
+                                                    <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
+                                                    {client.address || 'Ubicación de entrega'}
+                                                </p>
+                                            </div>
+                                            {client.isDelivered && (
+                                                <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : selectedRoute && routeDrivers.length > 0 ? (
                             routeDrivers.map((driver, idx) => {
                                 const color = driver.colorHex || DRIVER_COLORS[idx % DRIVER_COLORS.length];
                                 const pct = driver.totalClients > 0 ? Math.round((driver.deliveredCount / driver.totalClients) * 100) : 0;
@@ -1253,7 +1330,11 @@ const FleetMonitor = () => {
                                 const sc = statusConfig[driver.status];
 
                                 return (
-                                    <div key={driver.driverName} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.05] transition-all duration-200">
+                                    <div 
+                                        key={driver.driverName} 
+                                        onClick={() => setSelectedDriverForDetails(driver)}
+                                        className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.08] hover:border-white/[0.1] transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                                    >
                                         {/* Driver Header */}
                                         <div className="flex items-start justify-between mb-3">
                                             <div className="flex items-center gap-3">
