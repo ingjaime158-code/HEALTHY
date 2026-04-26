@@ -255,8 +255,8 @@ const MapContent = ({
                                     className="relative flex items-center justify-center w-9 h-9 bg-white rounded-full shadow-xl border-2 z-10 transition-transform duration-1000 ease-out"
                                     style={{ borderColor: driverColor, transform: `rotate(${pos.heading || 0}deg)` }}
                                 >
-                                    <span className="material-symbols-outlined text-[20px]" style={{ color: driverColor }}>
-                                        directions_car
+                                    <span className="material-symbols-outlined text-[20px]" style={{ color: driverColor, fontVariationSettings: "'FILL' 1" }}>
+                                        navigation
                                     </span>
                                 </div>
                             </div>

@@ -178,41 +178,26 @@ export const deleteKPILog = async (id: string): Promise<boolean> => {
 };
 
 export const getLatestDriverLocations = async (): Promise<{ [driverId: string]: { lat: number, lng: number, heading: number } }> => {
-    // Try the optimized DB view first (DISTINCT ON driver_id)
-    const { data, error } = await supabase
-        .from('latest_driver_locations')
-        .select('driver_id, lat, lng, heading');
+    // Only fetch locations updated within the last 12 hours to prevent ghost drivers
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
 
-    if (!error && data) {
-        const locations: { [driverId: string]: { lat: number, lng: number, heading: number } } = {};
-        for (const loc of data) {
-            if (loc.driver_id) {
-                locations[loc.driver_id] = {
-                    lat: Number(loc.lat),
-                    lng: Number(loc.lng),
-                    heading: Number(loc.heading) || 0
-                };
-            }
-        }
-        return locations;
-    }
-
-    // Fallback: old approach (if view doesn't exist yet)
-    console.warn('latest_driver_locations view not found, using fallback. Run the SQL migration to create it.');
     const { data: rawData, error: rawError } = await supabase
         .from('driver_locations')
         .select('*')
+        .gte('created_at', twelveHoursAgo)
         .order('created_at', { ascending: false })
-        .limit(200);
-
-    if (rawError) {
-        console.error('Error fetching driver locations:', rawError);
-        return {};
-    }
+        .limit(300);
 
     const locations: { [driverId: string]: { lat: number, lng: number, heading: number } } = {};
+    
+    if (rawError) {
+        console.error('Error fetching driver locations:', rawError);
+        return locations;
+    }
+
     if (rawData) {
         for (const loc of rawData) {
+            // Because it's ordered by created_at DESC, the first time we see a driverId, it's the latest
             if (loc.driver_id && !locations[loc.driver_id]) {
                 locations[loc.driver_id] = {
                     lat: Number(loc.lat),
