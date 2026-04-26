@@ -1300,7 +1300,7 @@ const FleetMonitor = () => {
                                     {(selectedDriverForDetails?.clients || []).map((client, cIdx) => (
                                         <div key={cIdx} className="bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg p-3 flex items-start gap-3 transition-colors">
                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
-                                                {client.order || (cIdx + 1)}
+                                                {cIdx + 1}
                                             </div>
                                             <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
                                                 <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
