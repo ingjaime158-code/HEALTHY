@@ -232,13 +232,11 @@ const Registry = () => {
             setAdminPhonePrefix(prefix);
             setAdminForm({ name: item.name, phone: number });
         }
-        if (type === 'destination') {
-            setDestinationForm({
+        if (type === 'map') {
+            setMapForm({
                 name: item.name,
-                address: item.address || '',
-                lat: item.lat || 25.6866,
-                lng: item.lng || -100.3161,
-                coordsInput: `${item.lat}, ${item.lng}`
+                morningMapUrl: item.morningMapUrl || '',
+                eveningMapUrl: item.eveningMapUrl || '',
             });
         }
 

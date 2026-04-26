@@ -121,19 +121,17 @@ const Login = () => {
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Desactivado temporalmente para pruebas
-    /*
     const { locked, remainingSeconds } = isLockedOut();
     if (locked) {
       setError(`Cuenta bloqueada temporalmente. Intenta de nuevo en ${remainingSeconds} segundos.`);
+      setLoading(false);
       return;
     }
-    */
+    
     setError('');
     setLoading(true);
 
-    // Mapeo de nombre de usuario a email
-    const loginEmail = email.toLowerCase() === 'jimmy' ? 'jimmy@healthydreams.com' : email;
+    const loginEmail = email;
 
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -168,7 +166,7 @@ const Login = () => {
     }
   };
 
-  const isCurrentlyLocked = false; // Forzado a false para pruebas
+  const { locked: isCurrentlyLocked } = isLockedOut();
 
   return (
     <div className="flex h-screen w-full items-center justify-center bg-[#051024] relative overflow-hidden font-display">

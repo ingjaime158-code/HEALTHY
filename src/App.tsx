@@ -58,7 +58,6 @@ const RoleGuard = ({ children, allowedRoles }: { children: React.ReactNode, allo
     return children;
 };
 
-const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const FleetMonitor = React.lazy(() => import('./pages/Monitor'));
 const TripManagement = React.lazy(() => import('./pages/Trips'));
 const Registry = React.lazy(() => import('./pages/Registry'));
@@ -72,8 +71,6 @@ const Leads = React.lazy(() => import('./pages/Leads'));
 const Comercializadora = React.lazy(() => import('./pages/Comercializadora'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 const Clients = React.lazy(() => import('./pages/Clients'));
-const Bases = React.lazy(() => import('./pages/Bases'));
-const Billing = React.lazy(() => import('./pages/Billing'));
 const GoogleSheetView = React.lazy(() => import('./pages/GoogleSheetView'));
 
 // Placeholder Sheet IDs - User should update these in .env or here
@@ -123,11 +120,6 @@ const App = () => {
                                     <FleetMonitor />
                                 </RoleGuard>
                             } />
-                            <Route path="/dashboard/:section?" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <Dashboard />
-                                </RoleGuard>
-                            } />
                             <Route path="/trips/:tripId?" element={
                                 <RoleGuard allowedRoles={['Administrador']}>
                                     <TripManagement />
@@ -161,17 +153,6 @@ const App = () => {
                             <Route path="/clients" element={
                                 <RoleGuard allowedRoles={['Administrador']}>
                                     <Clients />
-                                </RoleGuard>
-                            } />
-                            <Route path="/bases" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <Bases />
-                                </RoleGuard>
-                            } />
-
-                            <Route path="/billing" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <Billing />
                                 </RoleGuard>
                             } />
 

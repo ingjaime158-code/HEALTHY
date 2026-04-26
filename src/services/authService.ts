@@ -58,7 +58,7 @@ export const validateCurrentSession = async (): Promise<{ allowed: boolean, emai
     const isAllowed = await checkAllowedUser(email);
 
     if (isAllowed) {
-        console.log(`Access GRANTED for email: ${email}`);
+  
         localStorage.setItem('hd_current_user', email);
         return { allowed: true, email };
     } else {

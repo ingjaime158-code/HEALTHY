@@ -33,7 +33,7 @@ export const sendPushNotificationToDriver = async (
       },
       body: JSON.stringify(message),
     });
-    console.log(`Push sent to ${pushToken}: ${title}`);
+
   } catch (error) {
     console.error('Error sending push notification:', error);
   }

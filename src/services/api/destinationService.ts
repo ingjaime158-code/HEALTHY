@@ -38,7 +38,7 @@ export const updateRouteMap = async (routeMap: RouteMap): Promise<boolean> => {
 export const deleteRouteMap = async (id: string): Promise<{ success: boolean, message?: string }> => {
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const srvKey = import.meta.env.VITE_SUPABASE_SERVICE_ROL || import.meta.env.VITE_SUPABASE_SERVICE_ROLE;
+        const srvKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE;
         const res = await fetch(`${supabaseUrl}/rest/v1/destinations?id=eq.${id}`, {
             method: 'DELETE',
             headers: {

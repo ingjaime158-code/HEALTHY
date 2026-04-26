@@ -40,7 +40,6 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
     navigate('/login');
   };
 
-  // Group Definitions
   const navGroups = [
     {
       key: 'operaciones',
@@ -52,13 +51,6 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       ]
     },
     {
-      key: 'general',
-      title: 'General',
-      items: [
-        { to: "/dashboard", icon: "dashboard", label: "Panel de Control", roles: ['Administrador'] },
-      ]
-    },
-    {
       key: 'admin',
       title: 'Administración',
       items: [
@@ -66,8 +58,6 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
         { to: "/clients", icon: "business", label: "Clientes", roles: ['Administrador'] },
         { to: "/registry/choferes", icon: "id_card", label: "Repartidores", roles: ['Administrador'] },
         { to: "/registry/mapas", icon: "map", label: "Mapas", roles: ['Administrador'] },
-        { to: "/bases", icon: "warehouse", label: "Centros de Distribución", roles: ['Administrador'] },
-        { to: "/billing", icon: "account_balance_wallet", label: "Cuentas por Cobrar", roles: ['Administrador'] },
       ]
     }
   ];
