@@ -6,22 +6,25 @@
  * the service_role key is always used in the Authorization header.
  */
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE || import.meta.env.VITE_SUPABASE_SERVICE_ROL;
-
-const headers = {
-    'apikey': supabaseServiceKey,
-    'Authorization': `Bearer ${supabaseServiceKey}`,
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
+const getHeaders = () => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE || import.meta.env.VITE_SUPABASE_SERVICE_ROL;
+    
+    return {
+        'apikey': supabaseServiceKey,
+        'Authorization': `Bearer ${supabaseServiceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+    };
 };
 
 /**
  * Fetches all rows from a table using the service_role key (bypasses RLS).
  */
 export async function adminSelect(table: string, select = '*'): Promise<any[]> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const url = `${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers: getHeaders() });
     if (!res.ok) {
         console.error(`[adminSelect] ${table} error:`, res.status, await res.text());
         return [];
@@ -33,10 +36,11 @@ export async function adminSelect(table: string, select = '*'): Promise<any[]> {
  * Inserts a row into a table using the service_role key (bypasses RLS).
  */
 export async function adminInsert(table: string, data: any): Promise<any> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const url = `${supabaseUrl}/rest/v1/${table}`;
     const res = await fetch(url, {
         method: 'POST',
-        headers,
+        headers: getHeaders(),
         body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -51,10 +55,11 @@ export async function adminInsert(table: string, data: any): Promise<any> {
  * Updates a row in a table using the service_role key (bypasses RLS).
  */
 export async function adminUpdate(table: string, id: string, data: any): Promise<boolean> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`;
     const res = await fetch(url, {
         method: 'PATCH',
-        headers,
+        headers: getHeaders(),
         body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -69,10 +74,11 @@ export async function adminUpdate(table: string, id: string, data: any): Promise
  * This bypasses email confirmation requirements.
  */
 export async function adminCreateAuthUser(email: string, password: string): Promise<{ id: string } | null> {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const url = `${supabaseUrl}/auth/v1/admin/users`;
     const res = await fetch(url, {
         method: 'POST',
-        headers,
+        headers: getHeaders(),
         body: JSON.stringify({
             email,
             password,
@@ -82,7 +88,6 @@ export async function adminCreateAuthUser(email: string, password: string): Prom
 
     if (!res.ok) {
         const err = await res.text();
-        // If user already exists, it might return an error, but we want to know the ID if possible
         console.warn(`[adminCreateAuthUser] error or already exists:`, res.status, err);
         return null;
     }
