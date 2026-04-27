@@ -40,8 +40,15 @@ const parseMileageCsv = (csv: string): DaySummary[] => {
     let parsingHeader = false;
 
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line || line.replace(/,/g, '').trim() === '') {
+        // Limpiamos la línea de comillas dobles que pone Google y espacios extra
+        const rawLine = lines[i].trim();
+        if (!rawLine) continue;
+
+        // Dividir por coma pero manejar posibles comas dentro de comillas (aunque aquí es simple)
+        // Primero limpiamos comillas globales de la línea para simplificar
+        const cleanLine = rawLine.replace(/"/g, '');
+        
+        if (cleanLine.replace(/,/g, '').trim() === '') {
             if (currentDay && currentDay.records.length > 0) {
                 summaries.push(currentDay);
                 currentDay = null;
@@ -49,10 +56,11 @@ const parseMileageCsv = (csv: string): DaySummary[] => {
             continue;
         }
 
-        const parts = line.split(',').map(p => p.trim());
+        const parts = cleanLine.split(',').map(p => p.trim());
 
-        // Check if it's a date header (e.g., RV 04-01-26 or RM 05-01-26)
-        if ((parts[0].startsWith('RV') || parts[0].startsWith('RM')) && parts[0].includes('-')) {
+        // Buscamos el encabezado de fecha (RV o RM seguido de fecha)
+        const firstPart = parts[0].toUpperCase();
+        if ((firstPart.startsWith('RV') || firstPart.startsWith('RM')) && firstPart.includes('-')) {
             if (currentDay && currentDay.records.length > 0) {
                 summaries.push(currentDay);
             }
@@ -60,17 +68,20 @@ const parseMileageCsv = (csv: string): DaySummary[] => {
                 date: parts[0],
                 records: []
             };
-            parsingHeader = true; // Next line should be headers
+            parsingHeader = true;
             continue;
         }
 
-        if (parts[0] === 'REPARTIDOR') {
+        if (firstPart === 'REPARTIDOR' || firstPart.includes('KM TOTALES')) {
             parsingHeader = false;
             continue;
         }
 
-        if (currentDay && !parsingHeader && parts.length >= 4 && parts[0] !== '') {
-            const totalKm = parseFloat(parts[1]) || 0;
+        if (currentDay && !parsingHeader && parts.length >= 2 && parts[0] !== '') {
+            // Validamos que la segunda columna sea un número para evitar filas de basura
+            const totalKm = parseFloat(parts[1]);
+            if (isNaN(totalKm)) continue;
+
             const routeKm = parseFloat(parts[2]) || 0;
             const customers = parseInt(parts[3]) || 0;
 
