@@ -83,6 +83,7 @@ const FleetMonitor = () => {
     const [activeTrips, setActiveTrips] = useState<Trip[]>([]);
     const [initialDriverPositions, setInitialDriverPositions] = useState<{ [key: string]: { lat: number, lng: number, heading: number } }>({});
     const [driverNames, setDriverNames] = useState<{ [key: string]: string }>({}); // Lookup for driver names
+    const [driverColors, setDriverColors] = useState<{ [key: string]: string }>({}); // Lookup for driver colors
     const [copiedTripId, setCopiedTripId] = useState<string | null>(null);
     const [finishedTrip, setFinishedTrip] = useState<Trip | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -256,10 +257,17 @@ const FleetMonitor = () => {
         const loadData = async () => {
             initializeData();
 
-            const { data: driversData } = await supabase.from('drivers').select('id, name');
+            const { data: driversData } = await supabase.from('drivers').select('id, name, color_hex');
             const dNames: { [key: string]: string } = {};
-            if (driversData) driversData.forEach((d: any) => dNames[d.id] = d.name);
+            const dColors: { [key: string]: string } = {};
+            if (driversData) {
+                driversData.forEach((d: any) => {
+                    dNames[d.id] = d.name;
+                    if (d.color_hex) dColors[d.id] = d.color_hex;
+                });
+            }
             setDriverNames(dNames);
+            setDriverColors(dColors);
 
             const [fetchedBiz, fetchedUnits, fetchedDrivers, fetchedPricing, fetchedTrips, fetchedLocations, fetchedDestinations, fetchedOrigins] = await Promise.all([
                 getBusinesses(),
@@ -787,6 +795,7 @@ const FleetMonitor = () => {
                             activeTrips={activeTrips}
                             driverPositions={driverPositions}
                             driverNames={driverNames}
+                            driverColors={driverColors}
                             businesses={businesses}
                             units={units}
                             showBusinesses={showBusinesses}

@@ -10,6 +10,7 @@ export interface MapContentProps {
     activeTrips: Trip[];
     driverPositions: { [key: string]: { lat: number, lng: number, heading: number } };
     driverNames: { [key: string]: string };
+    driverColors: { [key: string]: string };
     businesses: Business[];
     units: FleetUnit[];
     showBusinesses: boolean;
@@ -31,6 +32,7 @@ const MapContent = ({
     activeTrips, 
     driverPositions, 
     driverNames, 
+    driverColors,
     businesses, 
     units, 
     showBusinesses, 
@@ -240,7 +242,8 @@ const MapContent = ({
                     // Generar un color único y consistente basado en el UUID del chofer
                     let hash = 0;
                     for (let i = 0; i < driverId.length; i++) hash = driverId.charCodeAt(i) + ((hash << 5) - hash);
-                    const driverColor = TRIP_COLORS[Math.abs(hash) % TRIP_COLORS.length];
+                    const fallbackColor = TRIP_COLORS[Math.abs(hash) % TRIP_COLORS.length];
+                    const driverColor = driverColors[driverId] || fallbackColor;
                     
                     return (
                         <AdvancedMarker key={`driver-${driverId}`} position={{ lat: pos.lat, lng: pos.lng }} zIndex={60}>

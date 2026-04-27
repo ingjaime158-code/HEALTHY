@@ -34,6 +34,7 @@ interface TripData {
         name: string;
         vehicle_model?: string;
         license_plate?: string;
+        color_hex?: string;
     };
     unit: {
         name: string;
@@ -151,7 +152,7 @@ const TripTracking = () => {
                     .from('trips')
                     .select(`
                         *,
-                        drivers (id, name, vehicle_model, license_plate),
+                        drivers (id, name, vehicle_model, license_plate, color_hex),
                         units (name)
                     `)
                     .eq('id', tripId)
@@ -177,7 +178,8 @@ const TripTracking = () => {
                         id: data.drivers?.id || '',
                         name: data.drivers?.name || 'Repartidor Asignado',
                         vehicle_model: data.drivers?.vehicle_model,
-                        license_plate: data.drivers?.license_plate
+                        license_plate: data.drivers?.license_plate,
+                        color_hex: data.drivers?.color_hex
                     },
                     unit: {
                         name: data.units?.name || 'Unidad'
@@ -357,15 +359,17 @@ const TripTracking = () => {
                             {/* Driver Marker */}
                             {driverLocation && (
                                 <AdvancedMarker position={driverLocation}>
-                                    <div className="flex flex-col items-center">
-                                        <div className="bg-white px-2 py-0.5 rounded shadow text-[10px] font-bold mb-1 whitespace-nowrap -mt-6">
+                                    <div className="flex flex-col items-center group relative z-50">
+                                        <div className="absolute bottom-10 bg-black/90 text-white px-2 py-1 rounded shadow text-[10px] font-bold mb-1 whitespace-nowrap opacity-100 transition-opacity z-[60]">
                                             {trip.driver.name}
                                         </div>
                                         <div
-                                            className="text-4xl drop-shadow-lg transition-transform duration-500"
-                                            style={{ transform: `rotate(${driverLocation.heading || 0}deg)` }}
+                                            className="relative flex items-center justify-center w-10 h-10 bg-white rounded-full shadow-xl border-2 z-50 transition-transform duration-500"
+                                            style={{ borderColor: trip.driver.color_hex || '#3b82f6', transform: `rotate(${driverLocation.heading || 0}deg)` }}
                                         >
-                                            🛵
+                                            <span className="material-symbols-outlined text-[24px]" style={{ color: trip.driver.color_hex || '#3b82f6', fontVariationSettings: "'FILL' 1" }}>
+                                                navigation
+                                            </span>
                                         </div>
                                     </div>
                                 </AdvancedMarker>

@@ -150,7 +150,7 @@ const Registry = () => {
             setBizForm({ name: '', type: 'Hotel', location: '', lat: 25.6866, lng: -100.3161, phone: '', rfc: '', coordsInput: '', parentId: '', isBranch: false, baseRate0to6: '', baseRate6to15: '', extraKmRate: '', waitRatePerMin: '' });
             setPendingBranches([]);
             setUnitForm({ name: '', managerName: '', managerNumber: '', receptionistNumber: '', location: '', lat: 25.6750, lng: -100.3200, coordsInput: '', isOwn: false });
-            setDriverForm({ name: '', phoneNumber: '', password: '', morningSheetUrl: '', eveningSheetUrl: '', morningMyMapsUrl: '', eveningMyMapsUrl: '', unitId: units.length > 0 ? units[0].id : '' });
+            setDriverForm({ name: '', phoneNumber: '', password: '', morningSheetUrl: '', eveningSheetUrl: '', morningMyMapsUrl: '', eveningMyMapsUrl: '', unitId: units.length > 0 ? units[0].id : '', colorHex: '#3b82f6' });
             setAdminForm({ name: '', phone: '', email: '', password: '', role: 'Administrador', businessId: '' });
             setMapForm({ name: '', morningMapUrl: '', eveningMapUrl: '' });
 
@@ -231,7 +231,8 @@ const Registry = () => {
                 morningMyMapsUrl: item.morningMyMapsUrl || '',
                 eveningMyMapsUrl: item.eveningMyMapsUrl || '',
                 password: item.password || '',
-                unitId: item.unitId
+                unitId: item.unitId,
+                colorHex: item.colorHex || ''
             });
         }
         if (type === 'admin') {
@@ -1195,6 +1196,14 @@ const Registry = () => {
                                             <div className="flex gap-2">
                                                 <span className="material-symbols-outlined text-purple-400">map</span>
                                                 <input type="url" className="flex-1 rounded-lg border-gray-300 text-sm" value={driverForm.eveningMyMapsUrl} onChange={e => setDriverForm({ ...driverForm, eveningMyMapsUrl: e.target.value })} placeholder="https://www.google.com/maps/d/..." />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-[#636388] mb-1">Color del Icono (Mapa)</label>
+                                            <div className="flex gap-3 items-center">
+                                                <input type="color" className="w-10 h-10 rounded cursor-pointer border-0 p-0" value={driverForm.colorHex || '#3b82f6'} onChange={e => setDriverForm({ ...driverForm, colorHex: e.target.value })} />
+                                                <span className="text-xs text-gray-500 uppercase font-mono">{driverForm.colorHex || '#3b82f6'}</span>
+                                                <button type="button" onClick={() => setDriverForm({ ...driverForm, colorHex: '' })} className="text-[10px] text-red-500 hover:underline">Restablecer (Auto)</button>
                                             </div>
                                         </div>
                                     </div>

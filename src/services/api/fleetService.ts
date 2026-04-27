@@ -105,7 +105,8 @@ export const getDrivers = async (): Promise<Driver[]> => {
         morningMyMapsUrl: d.morning_my_maps_url || '',
         eveningMyMapsUrl: d.evening_my_maps_url || '',
         password: d.password || '',
-        unitId: d.unit_id
+        unitId: d.unit_id,
+        colorHex: d.color_hex || ''
     }));
 };
 
@@ -118,7 +119,8 @@ export const addDriver = async (driver: Omit<Driver, 'id'>): Promise<Driver> => 
         morning_my_maps_url: driver.morningMyMapsUrl,
         evening_my_maps_url: driver.eveningMyMapsUrl,
         password: driver.password,
-        unit_id: driver.unitId || null
+        unit_id: driver.unitId || null,
+        color_hex: driver.colorHex || null
     }).select().single();
 
     if (error) throw error;
@@ -132,7 +134,8 @@ export const addDriver = async (driver: Omit<Driver, 'id'>): Promise<Driver> => 
         morningMyMapsUrl: data.morning_my_maps_url,
         eveningMyMapsUrl: data.evening_my_maps_url,
         password: data.password,
-        unitId: data.unit_id
+        unitId: data.unit_id,
+        colorHex: data.color_hex
     };
 };
 
@@ -145,7 +148,8 @@ export const updateDriver = async (driver: Driver): Promise<boolean> => {
         morning_my_maps_url: driver.morningMyMapsUrl,
         evening_my_maps_url: driver.eveningMyMapsUrl,
         password: driver.password,
-        unit_id: driver.unitId || null
+        unit_id: driver.unitId || null,
+        color_hex: driver.colorHex || null
     }).eq('id', driver.id);
 
     if (error) {

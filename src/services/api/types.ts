@@ -47,6 +47,7 @@ export interface Driver {
     eveningMyMapsUrl?: string;
     unitId: string;
     expoPushToken?: string;
+    colorHex?: string;
 }
 
 export interface Administrator {
