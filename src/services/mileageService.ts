@@ -23,10 +23,20 @@ const GIDS: { [key: string]: string } = {
 
 export const fetchMileageData = async (monthName: string): Promise<DaySummary[]> => {
     const gid = GIDS[monthName];
-    if (!gid) throw new Error(`Mes no encontrado: ${monthName}`);
+    
+    // LOG DE DEPURACIÓN: Esto aparecerá en la consola del navegador (F12)
+    console.log(`[MileageService] Solicitando mes: ${monthName}, GID: ${gid || 'NO ENCONTRADO'}`);
+
+    if (!gid) {
+        console.error(`[MileageService] Error: No hay un GID configurado para el mes "${monthName}". Revisa el archivo mileageService.ts`);
+        throw new Error(`Mes no encontrado: ${monthName}`);
+    }
 
     // Añadimos un timestamp para evitar que el navegador cachee datos de meses anteriores
     const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}&tcb=${Date.now()}`;
+    
+    console.log(`[MileageService] URL Final: ${url}`);
+
     const response = await axios.get(url);
     const csvData = response.data;
 

@@ -15,6 +15,7 @@ import PaymentTicket from '../components/PaymentTicket';
 import { useRealtimeTracking } from '../hooks/useRealtimeTracking';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
 import { buildDriverProgress, DriverRouteInfo } from '../services/routeMonitorService';
+import { fetchMileageData, MileageRecord } from '../services/mileageService';
 
 // CORRECCIÓN PARA VITE: Se usa import.meta.env en lugar de process.env
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -175,6 +176,8 @@ const FleetMonitor = () => {
         coords: ''
     });
     const [draftMarker, setDraftMarker] = useState<{lat: number, lng: number} | null>(null);
+    const [recentMileage, setRecentMileage] = useState<MileageRecord[]>([]);
+    const [loadingMileage, setLoadingMileage] = useState(false);
 
     const extractCoordsFromLink = (link: string) => {
         const atMatch = link.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
@@ -289,11 +292,18 @@ const FleetMonitor = () => {
             setActiveTrips(fetchedTrips);
             setInitialDriverPositions(fetchedLocations);
 
-            // Find HD base but don't set it as default origin — only make it available for selection
-            const hdBase = fetchedUnits.find((u: any) => u.name.toUpperCase().includes('HEALTHY') || u.name.toUpperCase().includes('HD')) || fetchedUnits[0] || null;
-            if (hdBase) {
-                setSelectedUnit(hdBase);
-                // Do NOT set manualBaseOverride=true so it won't auto-use as origin
+            // Fetch recent mileage for the summary
+            setLoadingMileage(true);
+            try {
+                const currentMonth = new Intl.DateTimeFormat('es-MX', { month: 'long' }).format(new Date());
+                const capitalizedMonth = currentMonth.charAt(0).toUpperCase() + currentMonth.slice(1);
+                const mileageData = await fetchMileageData(capitalizedMonth);
+                const allRecords = mileageData.flatMap(d => d.records).reverse().slice(0, 2);
+                setRecentMileage(allRecords);
+            } catch (e) {
+                console.error('Error fetching recent mileage:', e);
+            } finally {
+                setLoadingMileage(false);
             }
         };
         loadData();
@@ -1261,6 +1271,31 @@ const FleetMonitor = () => {
                         </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 scrollbar-hide">
+                        {/* --- RESUMEN DE ÚLTIMAS CAPTURAS DE KILOMETRAJE --- */}
+                        {recentMileage.length > 0 && !selectedDriverForDetails && (
+                            <div className="mb-2 space-y-2">
+                                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] px-1 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-[14px]">history</span>
+                                    Últimas Capturas (KM)
+                                </h4>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {recentMileage.map((mile, mIdx) => (
+                                        <div key={mIdx} className="bg-indigo-600/10 border border-indigo-500/20 rounded-xl p-3 flex flex-col gap-1 shadow-sm">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-white text-[11px] font-black truncate">{mile.driver}</p>
+                                                <span className="text-[9px] font-bold text-indigo-300/60 font-mono">{mile.date.split(' ').pop()}</span>
+                                            </div>
+                                            <div className="flex items-baseline gap-1.5">
+                                                <p className="text-indigo-400 text-sm font-black">{mile.routeKm}<span className="text-[10px] ml-0.5 opacity-60">km</span></p>
+                                                <span className="text-slate-500 text-[10px]">•</span>
+                                                <p className="text-slate-300 text-[11px] font-bold">{mile.customers}<span className="text-[9px] ml-0.5 opacity-60">clis</span></p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Route Driver Cards or Driver Details */}
                         {selectedDriverForDetails ? (
                             <div className="flex flex-col gap-3 pb-6">
