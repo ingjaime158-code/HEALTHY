@@ -166,7 +166,11 @@ const MileageDashboard: React.FC = () => {
                                                             <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                                                             {r.driver}
                                                         </td>
-                                                        <td className="py-3 text-right font-mono text-slate-500 text-xs font-bold">{r.totalKm}</td>
+                                                        <td className="py-3 text-right">
+                                                            <span className="font-black text-emerald-600 text-sm bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100/50">
+                                                                {r.totalKm}
+                                                            </span>
+                                                        </td>
                                                         <td className="py-3 text-right">
                                                             <span className="font-black text-blue-600 text-sm bg-blue-50 px-2 py-1 rounded-lg">
                                                                 {r.routeKm}
