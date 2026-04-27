@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { fetchMileageData, DaySummary } from '../services/mileageService';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-    AreaChart, Area 
+    AreaChart, Area, LabelList 
 } from 'recharts';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril'];
@@ -155,9 +155,12 @@ const MileageDashboard: React.FC = () => {
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="date" tick={{fontSize: 10, fill: '#64748b'}} axisLine={false} tickLine={false} />
                                     <YAxis tick={{fontSize: 10, fill: '#64748b'}} axisLine={false} tickLine={false} />
-                                    <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                                    <Area type="monotone" dataKey="totalKm" stroke="#3b82f6" strokeWidth={3} fill="#3b82f6" fillOpacity={0.1} />
-                                    <Area type="monotone" dataKey="routeKm" stroke="#10b981" strokeWidth={3} fill="none" />
+                                    <Tooltip 
+                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
+                                        itemStyle={{fontWeight: 'bold', fontSize: '12px'}}
+                                    />
+                                    <Area type="monotone" dataKey="totalKm" stroke="#3b82f6" strokeWidth={3} fill="#3b82f6" fillOpacity={0.1} name="KM Totales" />
+                                    <Area type="monotone" dataKey="routeKm" stroke="#10b981" strokeWidth={3} fill="none" name="KM en Ruta" />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
@@ -174,8 +177,13 @@ const MileageDashboard: React.FC = () => {
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 11, fontWeight: 700}} axisLine={false} tickLine={false} />
-                                    <Tooltip />
-                                    <Bar dataKey="route" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                                    <Tooltip 
+                                        cursor={{fill: '#f8fafc'}}
+                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
+                                    />
+                                    <Bar dataKey="route" fill="#3b82f6" radius={[0, 4, 4, 0]} name="KM en Ruta">
+                                        <LabelList dataKey="route" position="right" style={{ fontSize: '10px', fontWeight: 'bold', fill: '#64748b' }} />
+                                    </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>

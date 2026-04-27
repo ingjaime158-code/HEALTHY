@@ -25,8 +25,8 @@ export const fetchMileageData = async (monthName: string): Promise<DaySummary[]>
     const gid = GIDS[monthName];
     if (!gid) throw new Error(`Mes no encontrado: ${monthName}`);
 
-    // Usamos el endpoint de visualización que es más estable para peticiones web públicas
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`;
+    // Añadimos un timestamp para evitar que el navegador cachee datos de meses anteriores
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}&tcb=${Date.now()}`;
     const response = await axios.get(url);
     const csvData = response.data;
 
