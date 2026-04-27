@@ -131,8 +131,10 @@ export function useRealtimeTracking(
 
     // ── Subscribe to postgres_changes on driver_locations (reliable) ──────
     useEffect(() => {
+        // Use a unique channel name per hook instance to avoid conflicts
+        const channelId = `tracking-${Math.random().toString(36).slice(2, 9)}`;
         const channel = supabase
-            .channel('realtime-tracking-hook')
+            .channel(channelId)
             .on(
                 'postgres_changes',
                 {
@@ -141,7 +143,7 @@ export function useRealtimeTracking(
                     table: 'driver_locations',
                 },
                 (payload) => {
-                    const loc = payload.new as any;
+                    const loc = (payload.new || payload.old) as any;
                     if (loc?.driver_id) {
                         handleNewPosition(
                             loc.driver_id,
@@ -152,7 +154,11 @@ export function useRealtimeTracking(
                     }
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`[GPS] Realtime tracking subscribed: ${channelId}`);
+                }
+            });
 
         return () => {
             supabase.removeChannel(channel);

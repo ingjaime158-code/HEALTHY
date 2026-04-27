@@ -444,20 +444,27 @@ const FleetMonitor = () => {
     }, []);
 
     // ── Smooth GPS tracking with LERP interpolation ──────────────────────────
-    // Include ALL drivers defined in the system to ensure we listen for their signal
     const activeDriverIds = useMemo(
         () => {
-            return drivers.map(d => d.id).filter(Boolean);
+            const ids = drivers.map(d => d.id).filter(Boolean);
+            // If drivers haven't loaded yet, try to use ids from driverNames keys
+            if (ids.length === 0) return Object.keys(driverNames);
+            return ids;
         },
-        [drivers]
+        [drivers, driverNames]
     );
     const realtimePositions = useRealtimeTracking(activeDriverIds);
 
     // Merge: initial static positions + real-time LERP-animated positions
-    const driverPositions = useMemo(
-        () => ({ ...initialDriverPositions, ...realtimePositions }),
-        [initialDriverPositions, realtimePositions]
-    );
+    // We memoize this to prevent unnecessary re-renders of heavy components
+    const driverPositions = useMemo(() => {
+        const merged = { ...initialDriverPositions };
+        // Overwrite with realtime animated positions
+        Object.keys(realtimePositions).forEach(id => {
+            merged[id] = realtimePositions[id];
+        });
+        return merged;
+    }, [initialDriverPositions, realtimePositions]);
 
     // ── Polling fallback: refresh GPS positions every 5s from DB ──────────
     // This ensures positions update even if Supabase Realtime isn't enabled
