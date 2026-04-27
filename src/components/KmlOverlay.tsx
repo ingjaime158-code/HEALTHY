@@ -53,13 +53,13 @@ const KmlOverlay = ({ kmlUrl }: KmlOverlayProps) => {
             return;
         }
 
-        // Use KmlLayer — it renders routes, polygons, AND placemarks with icons
-        // The &forcekml=1 parameter ensures full KML export with styles
-        // Cache bust every 5 minutes to balance freshness vs Google's rate limits
+        // Removed &forcekml=1 so My Maps serves a KMZ (zipped) file instead of raw KML.
+        // KMZ files bundle the custom icon images (stars, P, circles) inside the zip,
+        // allowing KmlLayer to render them correctly instead of defaulting to grey teardrops.
         const cacheBust = Math.floor(Date.now() / 300000);
-        const finalUrl = `https://www.google.com/maps/d/kml?mid=${mid}&forcekml=1&cb=${cacheBust}`;
+        const finalUrl = `https://www.google.com/maps/d/kml?mid=${mid}&cb=${cacheBust}`;
 
-        console.log('[KmlOverlay] Loading KML:', finalUrl);
+        console.log('[KmlOverlay] Loading KMZ:', finalUrl);
 
         const kmlLayer = new google.maps.KmlLayer({
             url: finalUrl,

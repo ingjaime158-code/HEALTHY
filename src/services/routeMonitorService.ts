@@ -167,6 +167,63 @@ function normalizeName(name: string): string {
 }
 
 /**
+ * Computes a similarity score (0-1) between two strings using
+ * longest common subsequence ratio. Used for fuzzy name matching.
+ */
+function similarityScore(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const lenA = a.length, lenB = b.length;
+  // LCS via dynamic programming
+  const dp: number[][] = Array.from({ length: lenA + 1 }, () => new Array(lenB + 1).fill(0));
+  for (let i = 1; i <= lenA; i++) {
+    for (let j = 1; j <= lenB; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  const lcs = dp[lenA][lenB];
+  return (2 * lcs) / (lenA + lenB); // Dice-style ratio
+}
+
+/**
+ * Finds the best matching ORDEN for a given client name from the orderMap.
+ * First tries exact match, then falls back to fuzzy matching (threshold ≥ 0.75).
+ */
+function findOrderForClient(
+  normalizedClientName: string,
+  orderMap: Map<string, number>
+): number | undefined {
+  // 1. Exact match
+  const exact = orderMap.get(normalizedClientName);
+  if (exact !== undefined) return exact;
+
+  // 2. Check if one contains the other (substring match)
+  for (const [sheetName, orden] of orderMap) {
+    if (normalizedClientName.includes(sheetName) || sheetName.includes(normalizedClientName)) {
+      return orden;
+    }
+  }
+
+  // 3. Fuzzy match — pick best candidate above threshold
+  let bestScore = 0;
+  let bestOrden: number | undefined;
+  for (const [sheetName, orden] of orderMap) {
+    const score = similarityScore(normalizedClientName, sheetName);
+    if (score > bestScore) {
+      bestScore = score;
+      bestOrden = orden;
+    }
+  }
+
+  if (bestScore >= 0.75 && bestOrden !== undefined) {
+    return bestOrden;
+  }
+
+  return undefined;
+}
+
+/**
  * Downloads a driver's individual route sheet and returns a Map of
  * normalized client name → ORDEN number.
  * Entries with ORDEN = 0 (PUNTO DE INICIO) are excluded.
@@ -212,6 +269,8 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
 
       orderMap.set(nombre, orden);
     }
+
+    console.log(`[routeMonitor] Driver sheet parsed: ${orderMap.size} client orders loaded`);
   } catch (err) {
     console.warn('[routeMonitor] Error fetching driver sheet:', err);
   }
@@ -303,16 +362,26 @@ export async function buildDriverProgress(
       const orderMap = await fetchDriverOrderMap(driverSheetUrl);
 
       if (orderMap.size > 0) {
+        let matchedCount = 0;
         // Apply ORDEN from the driver's sheet to each client
         for (const client of clients) {
           const normalizedClientName = normalizeName(client.name);
-          const driverOrder = orderMap.get(normalizedClientName);
+          const driverOrder = findOrderForClient(normalizedClientName, orderMap);
           if (driverOrder !== undefined) {
             client.order = driverOrder;
+            matchedCount++;
+          } else {
+            // Unmatched clients go to the bottom
+            client.order = 9999 + clients.indexOf(client);
+            console.warn(`[routeMonitor] ⚠ No order match for "${client.name}" (normalized: "${normalizedClientName}") in ${driverName}'s sheet`);
           }
-          // If no match found, keep the original CSV row index as fallback (will likely send to bottom)
         }
+        console.log(`[routeMonitor] ✅ ${driverName}: ${matchedCount}/${clients.length} clients matched with ORDEN from individual sheet`);
+      } else {
+        console.warn(`[routeMonitor] ⚠ ${driverName}: driver sheet returned empty order map`);
       }
+    } else {
+      console.warn(`[routeMonitor] ⚠ ${driverName}: no individual sheet URL found (dbDriver: ${dbDriver?.name || 'NOT FOUND'})`);
     }
 
     // Sort clients by the order retrieved from the driver's individual sheet
