@@ -46,6 +46,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       title: 'Logística',
       items: [
         { to: "/monitor", icon: "cell_tower", label: "Monitor en Vivo", roles: ['Administrador', 'Usuario'] },
+        { to: "/kilometros", icon: "route", label: "Kilómetros", roles: ['Administrador', 'Usuario'] },
         { to: "/ruta-matutina", icon: "wb_twilight", label: "Ruta Matutina", roles: ['Administrador', 'Usuario'] },
         { to: "/ruta-vespertina", icon: "wb_sunny", label: "Ruta Vespertina", roles: ['Administrador', 'Usuario'] },
       ]
