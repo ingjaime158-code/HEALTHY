@@ -252,13 +252,13 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
     }
 
     const text = await response.text();
-    const lines = text.split('\n').filter(l => l.trim().length > 0);
-    if (lines.length < 2) return orderMap;
+    const parsedRows = parseCsvContent(text);
+    if (parsedRows.length < 2) return orderMap;
 
-    const header = parseCsvLine(lines[0]).map(h => h.toUpperCase().replace(/\r/g, '').trim());
+    const header = parsedRows[0].map(h => h.toUpperCase());
 
     // Look specifically for ORDEN column
-    const ordenIdx = header.findIndex(h => h === 'ORDEN');
+    const ordenIdx = header.findIndex(h => h.includes('ORDEN'));
     const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
 
     if (ordenIdx === -1 || nombreIdx === -1) {
@@ -266,8 +266,8 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
       return orderMap;
     }
 
-    for (let i = 1; i < lines.length; i++) {
-      const fields = parseCsvLine(lines[i].replace(/\r/g, ''));
+    for (let i = 1; i < parsedRows.length; i++) {
+      const fields = parsedRows[i];
       const orden = parseInt(fields[ordenIdx] || '', 10);
       const nombre = normalizeName(fields[nombreIdx] || '');
 
