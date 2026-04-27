@@ -7,11 +7,8 @@ const AVAILABLE_VIEWS = [
     { key: '/monitor', label: 'Monitor en Vivo', icon: 'cell_tower', group: 'Monitor' },
     { key: '/ruta-matutina', label: 'Ruta Matutina', icon: 'wb_twilight', group: 'Logística' },
     { key: '/ruta-vespertina', label: 'Ruta Vespertina', icon: 'wb_sunny', group: 'Logística' },
-    { key: '/clients', label: 'Clientes (Spreadsheet)', icon: 'list_alt', group: 'Clientes' },
-    { key: '/registry/negocios', label: 'Registro de Negocios', icon: 'store', group: 'Clientes' },
-    { key: '/registry/destinos', label: 'Destinos', icon: 'place', group: 'Logística' },
+    { key: '/kilometros', label: 'Kilómetros', icon: 'speed', group: 'Logística' },
     { key: '/registry/choferes', label: 'Repartidores', icon: 'id_card', group: 'Administración' },
-    { key: '/invoices', label: 'Facturas', icon: 'request_quote', group: 'Administración' },
     { key: '/user-access', label: 'Control de Acceso', icon: 'group', group: 'Administración' },
 ];
 
