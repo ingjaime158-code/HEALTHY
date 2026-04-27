@@ -179,16 +179,16 @@ export const deleteKPILog = async (id: string): Promise<boolean> => {
 };
 
 export const getLatestDriverLocations = async (): Promise<{ [driverId: string]: { lat: number, lng: number, heading: number } }> => {
-    // Only fetch locations updated within the last 12 hours to prevent ghost drivers
+    // Only fetch locations updated within the last 5 minutes to prevent ghost drivers
     // NOTE: We filter on updated_at (not created_at) because the mobile app does UPSERT
     // on driver_id, so created_at is only set once on first insert, while updated_at
     // is refreshed every ~3 seconds by the GPS tracking service.
-    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
     const { data: rawData, error: rawError } = await supabase
         .from('driver_locations')
         .select('*')
-        .gte('updated_at', twelveHoursAgo)
+        .gte('updated_at', fiveMinutesAgo)
         .order('updated_at', { ascending: false })
         .limit(300);
 

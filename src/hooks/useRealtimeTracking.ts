@@ -50,6 +50,7 @@ function lerpAngle(a: number, b: number, t: number): number {
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const LERP_DURATION = 2500; // ms to smoothly transition between GPS points
+const PURGE_TIMEOUT = 5 * 60 * 1000; // 5 minutes inactivity
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ export function useRealtimeTracking(
 ): { [driverId: string]: DriverPosition } {
 
     const [positions, setPositions] = useState<{ [driverId: string]: DriverPosition }>({});
-    const animMapRef = useRef<Map<string, AnimationEntry>>(new Map());
+    const animMapRef = useRef<Map<string, AnimationEntry & { lastUpdate: number }>>(new Map());
     const rafRef = useRef<number>(0);
 
     // ── Handle incoming position update (from either source) ──────────────
@@ -71,7 +72,11 @@ export function useRealtimeTracking(
         if (existing) {
             const dLat = Math.abs(existing.target.lat - lat);
             const dLng = Math.abs(existing.target.lng - lng);
-            if (dLat < 0.00001 && dLng < 0.00001) return;
+            if (dLat < 0.00001 && dLng < 0.00001) {
+                // Still update lastUpdate to keep it alive
+                existing.lastUpdate = performance.now();
+                return;
+            }
         }
 
         const now = performance.now();
@@ -83,6 +88,7 @@ export function useRealtimeTracking(
             current: currentPos,
             target: { lat, lng, heading },
             startTime: now,
+            lastUpdate: now,
         });
     }, []);
 
@@ -108,7 +114,18 @@ export function useRealtimeTracking(
 
             const now = performance.now();
             const map = animMapRef.current;
+            
+            // Purge inactive drivers (5 minutes)
+            let hasPurged = false;
+            map.forEach((entry, driverId) => {
+                if (now - entry.lastUpdate > PURGE_TIMEOUT) {
+                    map.delete(driverId);
+                    hasPurged = true;
+                }
+            });
+
             if (map.size === 0) {
+                if (hasPurged) setPositions({}); // Clear UI if all purged
                 rafRef.current = requestAnimationFrame(tick);
                 return;
             }
