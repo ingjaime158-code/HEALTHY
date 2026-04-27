@@ -16,9 +16,9 @@ export interface DaySummary {
 const SHEET_ID = '1w4fXIwWhpstY8A2usROVpMNh7WAbUXv7cOgKcltn-Tk';
 const GIDS: { [key: string]: string } = {
     'Enero': '1003618615',
-    'Febrero': '1478198774',
-    'Marzo': '1530948509',
-    'Abril': '730074128'
+    'Febrero': '37267146',
+    'Marzo': '2113545175',
+    'Abril': '1900833549'
 };
 
 export const fetchMileageData = async (monthName: string): Promise<DaySummary[]> => {
