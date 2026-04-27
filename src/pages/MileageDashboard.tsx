@@ -156,7 +156,7 @@ const MileageDashboard: React.FC = () => {
                                                     <th className="pb-3 text-left">Repartidor</th>
                                                     <th className="pb-3 text-right">KM Totales</th>
                                                     <th className="pb-3 text-right">KM Ruta</th>
-                                                    <th className="pb-3 text-right">Clientes</th>
+                                                    <th className="pb-3 text-right">Total de Clientes</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-50">
@@ -179,7 +179,7 @@ const MileageDashboard: React.FC = () => {
                                                         <td className="py-3 text-right">
                                                             <div className="flex items-center justify-end gap-1">
                                                                 <span className="text-slate-900 font-black">{r.customers}</span>
-                                                                <span className="text-[10px] font-bold text-slate-300">clis</span>
+                                                                <span className="text-[10px] font-bold text-slate-300">clientes</span>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -195,7 +195,7 @@ const MileageDashboard: React.FC = () => {
                                                 <span className="text-xs font-bold text-slate-600">{route.records.reduce((s, r) => s + (r.routeKm || 0), 0)} km</span>
                                             </div>
                                             <div className="flex flex-col">
-                                                <span className="text-[9px] font-black text-slate-300 uppercase">Total Clis</span>
+                                                <span className="text-[9px] font-black text-slate-300 uppercase">Total Clientes</span>
                                                 <span className="text-xs font-bold text-slate-600">{route.records.reduce((s, r) => s + (r.customers || 0), 0)}</span>
                                             </div>
                                         </div>
@@ -215,7 +215,7 @@ const MileageDashboard: React.FC = () => {
                 {[
                     { id: 'totalKm', label: 'KM Totales', val: stats.totalKm.toLocaleString(), unit: 'km', icon: 'speed', color: 'emerald' },
                     { id: 'routeKm', label: 'KM en Ruta', val: stats.totalRouteKm.toLocaleString(), unit: 'km', icon: 'map', color: 'blue' },
-                    { id: 'customers', label: 'Entregas', val: stats.totalCustomers, unit: 'pts', icon: 'package', color: 'amber' },
+                    { id: 'customers', label: 'Total de Clientes', val: stats.totalCustomers, unit: 'clientes', icon: 'groups', color: 'amber' },
                 ].map((s) => (
                     <button 
                         key={s.id} 
@@ -248,7 +248,7 @@ const MileageDashboard: React.FC = () => {
                     <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100">
                         <h3 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
                             <span className="material-symbols-outlined text-blue-600 bg-blue-50 p-2 rounded-xl">show_chart</span>
-                            Tendencia Diaria: {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}
+                            Tendencia Diaria: {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Total de Clientes'}
                         </h3>
                         <div className="h-[400px]">
                             <ResponsiveContainer width="100%" height="100%">
@@ -267,7 +267,7 @@ const MileageDashboard: React.FC = () => {
                                         strokeWidth={4} 
                                         fill={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
                                         fillOpacity={0.1} 
-                                        name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'} 
+                                        name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Total de Clientes'} 
                                     />
                                 </AreaChart>
                             </ResponsiveContainer>
@@ -277,7 +277,7 @@ const MileageDashboard: React.FC = () => {
                     <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100">
                         <h3 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
                             <span className="material-symbols-outlined text-blue-600 bg-blue-50 p-2 rounded-xl">leaderboard</span>
-                            Ranking por {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}
+                            Ranking por {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Total de Clientes'}
                         </h3>
                         <div className="h-[400px]">
                             <ResponsiveContainer width="100%" height="100%">
@@ -289,7 +289,7 @@ const MileageDashboard: React.FC = () => {
                                         cursor={{fill: '#f8fafc'}}
                                         contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
                                     />
-                                    <Bar dataKey="value" fill={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} radius={[0, 10, 10, 0]} name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}>
+                                    <Bar dataKey="value" fill={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} radius={[0, 10, 10, 0]} name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Total de Clientes'}>
                                         <LabelList dataKey="value" position="right" style={{ fontSize: '12px', fontWeight: '900', fill: '#1e293b' }} />
                                     </Bar>
                                 </BarChart>
@@ -306,7 +306,7 @@ const MileageDashboard: React.FC = () => {
                                     <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Fecha</th>
                                     <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Repartidor</th>
                                     <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-right">KM Ruta</th>
-                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-right">Clientes</th>
+                                    <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-right">Total de Clientes</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
