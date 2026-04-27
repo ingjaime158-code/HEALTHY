@@ -114,6 +114,86 @@ const MileageDashboard: React.FC = () => {
                 </div>
             </div>
 
+            {/* Rutas Recientes (Últimas 2 Capturas Completas) */}
+            {data.length > 0 && (
+                <div className="mb-10">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="h-1 w-12 bg-blue-600 rounded-full"></div>
+                        <h2 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">Últimas Rutas Capturadas</h2>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        {[...data].reverse().slice(0, 2).map((route, idx) => (
+                            <div key={idx} className="bg-white rounded-[2rem] shadow-xl shadow-blue-900/5 border border-slate-100 overflow-hidden transition-all hover:shadow-2xl hover:shadow-blue-900/10 hover:-translate-y-1">
+                                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-4 flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <span className="material-symbols-outlined text-white/80 text-xl">calendar_today</span>
+                                        <h3 className="text-white font-black text-base uppercase tracking-tight">{route.date}</h3>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="bg-white/20 backdrop-blur-md text-white text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-widest border border-white/10">
+                                            {idx === 0 ? 'Más Reciente' : 'Anterior'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="p-6">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50">
+                                                    <th className="pb-3 text-left">Repartidor</th>
+                                                    <th className="pb-3 text-right">KM Totales</th>
+                                                    <th className="pb-3 text-right">KM Ruta</th>
+                                                    <th className="pb-3 text-right">Clientes</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {route.records.map((r, ri) => (
+                                                    <tr key={ri} className="group hover:bg-slate-50/80 transition-colors">
+                                                        <td className="py-3 font-bold text-slate-700 flex items-center gap-2">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                                            {r.driver}
+                                                        </td>
+                                                        <td className="py-3 text-right font-mono text-slate-500 text-xs font-bold">{r.totalKm}</td>
+                                                        <td className="py-3 text-right">
+                                                            <span className="font-black text-blue-600 text-sm bg-blue-50 px-2 py-1 rounded-lg">
+                                                                {r.routeKm}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 text-right">
+                                                            <div className="flex items-center justify-end gap-1">
+                                                                <span className="text-slate-900 font-black">{r.customers}</span>
+                                                                <span className="text-[10px] font-bold text-slate-300">clis</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <div className="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                                        <div className="flex gap-4">
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] font-black text-slate-300 uppercase">Total KM</span>
+                                                <span className="text-xs font-bold text-slate-600">{route.records.reduce((s, r) => s + (r.routeKm || 0), 0)} km</span>
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] font-black text-slate-300 uppercase">Total Clis</span>
+                                                <span className="text-xs font-bold text-slate-600">{route.records.reduce((s, r) => s + (r.customers || 0), 0)}</span>
+                                            </div>
+                                        </div>
+                                        <div className="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-slate-300 text-sm">info</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {[
