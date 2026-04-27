@@ -37,29 +37,41 @@ export interface DriverRouteInfo {
 
 // ── CSV Parser ───────────────────────────────────────────────────────────────
 
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
+function parseCsvContent(text: string): string[][] {
+  const result: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
     if (char === '"') {
-      if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
-        current += '"';
+      if (inQuotes && i + 1 < text.length && text[i + 1] === '"') {
+        currentField += '"';
         i++;
       } else {
         inQuotes = !inQuotes;
       }
     } else if (char === ',' && !inQuotes) {
-      result.push(current.trim());
-      current = '';
+      currentRow.push(currentField.trim());
+      currentField = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+      currentRow.push(currentField.trim());
+      result.push(currentRow);
+      currentRow = [];
+      currentField = '';
     } else {
-      current += char;
+      currentField += char;
     }
   }
-  result.push(current.trim());
-  return result;
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    result.push(currentRow);
+  }
+
+  return result.filter(row => row.some(field => field.length > 0));
 }
 
 // ── Convert Google Sheets URL to CSV export URL ──────────────────────────────
@@ -102,19 +114,16 @@ export async function fetchMasterSheetClients(
   }
 
   const text = await response.text();
-  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  const parsedRows = parseCsvContent(text);
 
-  if (lines.length < 2) return [];
+  if (parsedRows.length < 2) return [];
 
-  // Parse header
-  const headerFields = parseCsvLine(lines[0]).map(h => h.toUpperCase().replace(/\r/g, '').trim());
+  const headerFields = parsedRows[0].map(h => h.toUpperCase());
 
   const nameIdx = headerFields.findIndex(h => h.includes('NOMBRE'));
   const phoneIdx = headerFields.findIndex(h => h.includes('TELEFONO') || h.includes('TELÉFONO'));
   const addressIdx = headerFields.findIndex(h => h.includes('DIRECCI') || h.includes('DIRECCION'));
-  // LINK column must contain 'LINK' — don't match bare 'UBICAC' here to avoid stealing the coords column
   const linkIdx = headerFields.findIndex(h => h.includes('LINK'));
-  // UBICACIÓN column (exact match for coordinates)
   const coordsIdx = headerFields.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION');
   const repartidorIdx = headerFields.findIndex(h => h.includes('REPARTIDOR'));
 
@@ -127,16 +136,14 @@ export async function fetchMasterSheetClients(
 
   const clients: RouteClient[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const fields = parseCsvLine(lines[i].replace(/\r/g, ''));
+  for (let i = 1; i < parsedRows.length; i++) {
+    const fields = parsedRows[i];
 
     const nameVal = nameIdx >= 0 ? (fields[nameIdx] || '').trim() : '';
     const repartidorVal = repartidorIdx >= 0 ? (fields[repartidorIdx] || '').trim().toUpperCase() : '';
 
     if (!nameVal || !repartidorVal) continue;
 
-    // Use the CSV row index as a temporary order — it will be overridden
-    // with the real ORDEN from each driver's individual sheet later.
     clients.push({
       order: i,
       name: nameVal,
