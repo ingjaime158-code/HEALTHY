@@ -13,6 +13,7 @@ const MileageDashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'charts' | 'table'>('charts');
+    const [activeMetric, setActiveMetric] = useState<'totalKm' | 'routeKm' | 'customers' | 'efficiency'>('routeKm');
 
     useEffect(() => {
         const loadData = async () => {
@@ -48,24 +49,56 @@ const MileageDashboard: React.FC = () => {
 
     // Chart Data safely
     const dailyChartData = useMemo(() => {
-        return data.map(d => ({
-            date: d.date ? d.date.split(' ').pop() : '?',
-            totalKm: d.records ? d.records.reduce((sum, r) => sum + (r.totalKm || 0), 0) : 0,
-            routeKm: d.records ? d.records.reduce((sum, r) => sum + (r.routeKm || 0), 0) : 0
-        }));
+        return data.map(d => {
+            const totalKm = d.records ? d.records.reduce((sum, r) => sum + (r.totalKm || 0), 0) : 0;
+            const routeKm = d.records ? d.records.reduce((sum, r) => sum + (r.routeKm || 0), 0) : 0;
+            const customers = d.records ? d.records.reduce((sum, r) => sum + (r.customers || 0), 0) : 0;
+            const efficiency = customers > 0 ? parseFloat((routeKm / customers).toFixed(1)) : 0;
+            return {
+                date: d.date ? d.date.split(' ').pop() : '?',
+                totalKm,
+                routeKm,
+                customers,
+                efficiency
+            };
+        });
     }, [data]);
 
     const driverChartData = useMemo(() => {
-        const drivers: { [key: string]: { name: string, route: number } } = {};
+        const drivers: { [key: string]: { name: string, value: number } } = {};
         data.flatMap(d => d.records || []).forEach(r => {
             if (!r.driver) return;
             if (!drivers[r.driver]) {
-                drivers[r.driver] = { name: r.driver, route: 0 };
+                drivers[r.driver] = { name: r.driver, value: 0 };
             }
-            drivers[r.driver].route += (r.routeKm || 0);
+            
+            if (activeMetric === 'totalKm') drivers[r.driver].value += (r.totalKm || 0);
+            else if (activeMetric === 'routeKm') drivers[r.driver].value += (r.routeKm || 0);
+            else if (activeMetric === 'customers') drivers[r.driver].value += (r.customers || 0);
+            else if (activeMetric === 'efficiency') {
+                // For efficiency by driver, we'll need to recalculate carefully later if needed, 
+                // but for now let's show routeKm as proxy or just routeKm
+                drivers[r.driver].value += (r.routeKm || 0);
+            }
         });
-        return Object.values(drivers).sort((a, b) => b.route - a.route);
-    }, [data]);
+        
+        // If efficiency, calculate average for each driver
+        if (activeMetric === 'efficiency') {
+            const driverStats: { [key: string]: { km: number, cust: number } } = {};
+            data.flatMap(d => d.records || []).forEach(r => {
+                if (!r.driver) return;
+                if (!driverStats[r.driver]) driverStats[r.driver] = { km: 0, cust: 0 };
+                driverStats[r.driver].km += (r.routeKm || 0);
+                driverStats[r.driver].cust += (r.customers || 0);
+            });
+            return Object.keys(driverStats).map(name => ({
+                name,
+                value: driverStats[name].cust > 0 ? parseFloat((driverStats[name].km / driverStats[name].cust).toFixed(1)) : 0
+            })).sort((a, b) => a.value - b.value); // Lower efficiency is often "better" or just different
+        }
+
+        return Object.values(drivers).sort((a, b) => b.value - a.value);
+    }, [data, activeMetric]);
 
     if (loading) {
         return (
@@ -194,15 +227,21 @@ const MileageDashboard: React.FC = () => {
                 </div>
             )}
 
-            {/* Stats */}
+            {/* Stats as Buttons */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 {[
-                    { label: 'KM Totales', val: stats.totalKm.toLocaleString(), unit: 'km', icon: 'speed', color: 'emerald' },
-                    { label: 'KM en Ruta', val: stats.totalRouteKm.toLocaleString(), unit: 'km', icon: 'map', color: 'blue' },
-                    { label: 'Entregas', val: stats.totalCustomers, unit: 'pts', icon: 'package', color: 'amber' },
-                    { label: 'Eficiencia', val: stats.avgKmPerCustomer, unit: 'km/ent', icon: 'query_stats', color: 'purple' }
-                ].map((s, i) => (
-                    <div key={i} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    { id: 'totalKm', label: 'KM Totales', val: stats.totalKm.toLocaleString(), unit: 'km', icon: 'speed', color: 'emerald' },
+                    { id: 'routeKm', label: 'KM en Ruta', val: stats.totalRouteKm.toLocaleString(), unit: 'km', icon: 'map', color: 'blue' },
+                    { id: 'customers', label: 'Entregas', val: stats.totalCustomers, unit: 'pts', icon: 'package', color: 'amber' },
+                    { id: 'efficiency', label: 'Eficiencia', val: stats.avgKmPerCustomer, unit: 'km/ent', icon: 'query_stats', color: 'purple' }
+                ].map((s) => (
+                    <button 
+                        key={s.id} 
+                        onClick={() => setActiveMetric(s.id as any)}
+                        className={`text-left p-5 rounded-2xl transition-all duration-300 border ${activeMetric === s.id 
+                            ? `bg-white border-${s.color}-500 shadow-xl shadow-${s.color}-900/10 ring-2 ring-${s.color}-500/20 -translate-y-1` 
+                            : 'bg-white border-slate-100 shadow-sm hover:border-slate-300 hover:shadow-md'}`}
+                    >
                         <div className="flex items-center gap-3 mb-3">
                             <span className={`material-symbols-outlined text-${s.color}-600 bg-${s.color}-50 p-2 rounded-lg`}>{s.icon}</span>
                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{s.label}</span>
@@ -211,7 +250,7 @@ const MileageDashboard: React.FC = () => {
                             <h2 className="text-2xl font-black text-slate-900">{s.val}</h2>
                             <span className="text-xs font-bold text-slate-400">{s.unit}</span>
                         </div>
-                    </div>
+                    </button>
                 ))}
             </div>
 
@@ -239,8 +278,15 @@ const MileageDashboard: React.FC = () => {
                                         contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
                                         itemStyle={{fontWeight: 'bold', fontSize: '12px'}}
                                     />
-                                    <Area type="monotone" dataKey="totalKm" stroke="#3b82f6" strokeWidth={3} fill="#3b82f6" fillOpacity={0.1} name="KM Totales" />
-                                    <Area type="monotone" dataKey="routeKm" stroke="#10b981" strokeWidth={3} fill="none" name="KM en Ruta" />
+                                    <Area 
+                                        type="monotone" 
+                                        dataKey={activeMetric} 
+                                        stroke={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
+                                        strokeWidth={3} 
+                                        fill={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
+                                        fillOpacity={0.1} 
+                                        name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : activeMetric === 'customers' ? 'Entregas' : 'Eficiencia'} 
+                                    />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
@@ -261,8 +307,8 @@ const MileageDashboard: React.FC = () => {
                                         cursor={{fill: '#f8fafc'}}
                                         contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
                                     />
-                                    <Bar dataKey="route" fill="#3b82f6" radius={[0, 4, 4, 0]} name="KM en Ruta">
-                                        <LabelList dataKey="route" position="right" style={{ fontSize: '10px', fontWeight: 'bold', fill: '#64748b' }} />
+                                    <Bar dataKey="value" fill={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} radius={[0, 4, 4, 0]} name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : activeMetric === 'customers' ? 'Entregas' : 'Eficiencia'}>
+                                        <LabelList dataKey="value" position="right" style={{ fontSize: '10px', fontWeight: 'bold', fill: '#64748b' }} />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
