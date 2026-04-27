@@ -13,7 +13,7 @@ const MileageDashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'charts' | 'table'>('charts');
-    const [activeMetric, setActiveMetric] = useState<'totalKm' | 'routeKm' | 'customers' | 'efficiency'>('routeKm');
+    const [activeMetric, setActiveMetric] = useState<'totalKm' | 'routeKm' | 'customers'>('routeKm');
 
     useEffect(() => {
         const loadData = async () => {
@@ -58,8 +58,7 @@ const MileageDashboard: React.FC = () => {
                 date: d.date ? d.date.split(' ').pop() : '?',
                 totalKm,
                 routeKm,
-                customers,
-                efficiency
+                customers
             };
         });
     }, [data]);
@@ -75,27 +74,7 @@ const MileageDashboard: React.FC = () => {
             if (activeMetric === 'totalKm') drivers[r.driver].value += (r.totalKm || 0);
             else if (activeMetric === 'routeKm') drivers[r.driver].value += (r.routeKm || 0);
             else if (activeMetric === 'customers') drivers[r.driver].value += (r.customers || 0);
-            else if (activeMetric === 'efficiency') {
-                // For efficiency by driver, we'll need to recalculate carefully later if needed, 
-                // but for now let's show routeKm as proxy or just routeKm
-                drivers[r.driver].value += (r.routeKm || 0);
-            }
         });
-        
-        // If efficiency, calculate average for each driver
-        if (activeMetric === 'efficiency') {
-            const driverStats: { [key: string]: { km: number, cust: number } } = {};
-            data.flatMap(d => d.records || []).forEach(r => {
-                if (!r.driver) return;
-                if (!driverStats[r.driver]) driverStats[r.driver] = { km: 0, cust: 0 };
-                driverStats[r.driver].km += (r.routeKm || 0);
-                driverStats[r.driver].cust += (r.customers || 0);
-            });
-            return Object.keys(driverStats).map(name => ({
-                name,
-                value: driverStats[name].cust > 0 ? parseFloat((driverStats[name].km / driverStats[name].cust).toFixed(1)) : 0
-            })).sort((a, b) => a.value - b.value); // Lower efficiency is often "better" or just different
-        }
 
         return Object.values(drivers).sort((a, b) => b.value - a.value);
     }, [data, activeMetric]);
@@ -228,12 +207,11 @@ const MileageDashboard: React.FC = () => {
             )}
 
             {/* Stats as Buttons */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {[
                     { id: 'totalKm', label: 'KM Totales', val: stats.totalKm.toLocaleString(), unit: 'km', icon: 'speed', color: 'emerald' },
                     { id: 'routeKm', label: 'KM en Ruta', val: stats.totalRouteKm.toLocaleString(), unit: 'km', icon: 'map', color: 'blue' },
                     { id: 'customers', label: 'Entregas', val: stats.totalCustomers, unit: 'pts', icon: 'package', color: 'amber' },
-                    { id: 'efficiency', label: 'Eficiencia', val: stats.avgKmPerCustomer, unit: 'km/ent', icon: 'query_stats', color: 'purple' }
                 ].map((s) => (
                     <button 
                         key={s.id} 
@@ -262,53 +240,53 @@ const MileageDashboard: React.FC = () => {
             )}
 
             {viewMode === 'charts' ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-blue-600">show_chart</span>
-                            Tendencia de KM
+                <div className="flex flex-col gap-8">
+                    <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100">
+                        <h3 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
+                            <span className="material-symbols-outlined text-blue-600 bg-blue-50 p-2 rounded-xl">show_chart</span>
+                            Tendencia Diaria: {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}
                         </h3>
-                        <div className="h-[300px]">
+                        <div className="h-[400px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={dailyChartData}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="date" tick={{fontSize: 10, fill: '#64748b'}} axisLine={false} tickLine={false} />
-                                    <YAxis tick={{fontSize: 10, fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                    <XAxis dataKey="date" tick={{fontSize: 11, fontWeight: 600, fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{fontSize: 11, fontWeight: 600, fill: '#64748b'}} axisLine={false} tickLine={false} />
                                     <Tooltip 
-                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                                        itemStyle={{fontWeight: 'bold', fontSize: '12px'}}
+                                        contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
+                                        itemStyle={{fontWeight: '900', fontSize: '14px'}}
                                     />
                                     <Area 
                                         type="monotone" 
                                         dataKey={activeMetric} 
-                                        stroke={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
-                                        strokeWidth={3} 
-                                        fill={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
+                                        stroke={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
+                                        strokeWidth={4} 
+                                        fill={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} 
                                         fillOpacity={0.1} 
-                                        name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : activeMetric === 'customers' ? 'Entregas' : 'Eficiencia'} 
+                                        name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'} 
                                     />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
 
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-blue-600">leaderboard</span>
-                            KM por Repartidor
+                    <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100">
+                        <h3 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
+                            <span className="material-symbols-outlined text-blue-600 bg-blue-50 p-2 rounded-xl">leaderboard</span>
+                            Ranking por {activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}
                         </h3>
-                        <div className="h-[300px]">
+                        <div className="h-[400px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={driverChartData} layout="vertical">
+                                <BarChart data={driverChartData} layout="vertical" margin={{ left: 40, right: 40 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 11, fontWeight: 700}} axisLine={false} tickLine={false} />
+                                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12, fontWeight: 800, fill: '#1e293b'}} axisLine={false} tickLine={false} />
                                     <Tooltip 
                                         cursor={{fill: '#f8fafc'}}
-                                        contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
+                                        contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)'}}
                                     />
-                                    <Bar dataKey="value" fill={activeMetric === 'efficiency' ? '#8b5cf6' : activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} radius={[0, 4, 4, 0]} name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : activeMetric === 'customers' ? 'Entregas' : 'Eficiencia'}>
-                                        <LabelList dataKey="value" position="right" style={{ fontSize: '10px', fontWeight: 'bold', fill: '#64748b' }} />
+                                    <Bar dataKey="value" fill={activeMetric === 'customers' ? '#f59e0b' : activeMetric === 'totalKm' ? '#10b981' : '#3b82f6'} radius={[0, 10, 10, 0]} name={activeMetric === 'totalKm' ? 'KM Totales' : activeMetric === 'routeKm' ? 'KM en Ruta' : 'Entregas'}>
+                                        <LabelList dataKey="value" position="right" style={{ fontSize: '12px', fontWeight: '900', fill: '#1e293b' }} />
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
