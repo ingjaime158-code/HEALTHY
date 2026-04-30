@@ -16,9 +16,11 @@ export interface RouteClient {
   order: number;
   name: string;
   phone: string;
+  address: string;
   locationLink: string;
   coords: string;
   repartidor: string;
+  bags: number;
   isDelivered?: boolean;
 }
 
@@ -125,6 +127,7 @@ export async function fetchMasterSheetClients(
   const addressIdx = headerFields.findIndex(h => h.includes('DIRECCI') || h.includes('DIRECCION'));
   const linkIdx = headerFields.findIndex(h => h.includes('LINK'));
   const coordsIdx = headerFields.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION');
+  const bagsIdx = headerFields.findIndex(h => h.includes('BOLSA'));
   const repartidorIdx = headerFields.findIndex(h => h.includes('REPARTIDOR'));
 
   if (nameIdx === -1) {
@@ -152,6 +155,7 @@ export async function fetchMasterSheetClients(
       locationLink: linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '',
       coords: coordsIdx >= 0 ? (fields[coordsIdx] || '').trim() : '',
       repartidor: repartidorVal,
+      bags: bagsIdx >= 0 ? (parseInt(fields[bagsIdx] || '0', 10) || 0) : 0,
     });
   }
 

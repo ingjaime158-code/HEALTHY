@@ -50,7 +50,7 @@ function lerpAngle(a: number, b: number, t: number): number {
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const LERP_DURATION = 2500; // ms to smoothly transition between GPS points
-const PURGE_TIMEOUT = 5 * 60 * 1000; // 5 minutes inactivity
+const PURGE_TIMEOUT = 15 * 60 * 1000; // 15 minutes inactivity (prevents disappearing on signal loss)
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 

@@ -12,7 +12,8 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
     phone: string,
     address: string,
     locationLink: string,
-    coords: string
+    coords: string,
+    bags?: number
 }) => {
     const url = GAS_URLS[routeType];
     if (!url) {

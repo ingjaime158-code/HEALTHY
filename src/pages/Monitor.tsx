@@ -172,7 +172,8 @@ const FleetMonitor = () => {
         phone: '',
         address: '',
         locationLink: '',
-        coords: ''
+        coords: '',
+        bags: 0
     });
     const [draftMarker, setDraftMarker] = useState<{lat: number, lng: number} | null>(null);
 
@@ -830,7 +831,7 @@ const FleetMonitor = () => {
                                     type="button"
                                     title="Limpiar todos los campos y comenzar un nuevo registro"
                                     onClick={() => {
-                                        setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '' });
+                                        setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '', bags: 0 });
                                         setSelectingFor(null);
                                     }}
                                     className="flex items-center gap-2 group bg-transparent border-none outline-none cursor-pointer"
@@ -842,7 +843,7 @@ const FleetMonitor = () => {
                                 </button>
                                 <button onClick={() => {
                                     setIsSidebarOpen(false);
-                                    setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '' });
+                                    setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '', bags: 0 });
                                 }} className="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10">
                                     <span className="material-symbols-outlined">close</span>
                                 </button>
@@ -999,6 +1000,23 @@ const FleetMonitor = () => {
                                             }}
                                         />
                                     </div>
+                                    <div className="bg-pink-500/5 border border-pink-500/10 rounded-xl p-3 mt-2">
+                                        <label className="block text-[10px] font-black text-pink-400 mb-2 uppercase tracking-widest flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
+                                            Bolsas a entregar
+                                        </label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="number"
+                                                placeholder="0"
+                                                className="w-24 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-pink-500 placeholder-gray-500 transition-all font-mono"
+                                                value={newClient.bags}
+                                                onChange={(e) => setNewClient({ ...newClient, bags: parseInt(e.target.value) || 0 })}
+                                                min="0"
+                                            />
+                                            <span className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">Cantidad de bolsas</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-2 mt-6">
@@ -1028,11 +1046,12 @@ const FleetMonitor = () => {
                                                     phone: newClient.phone,
                                                     address: newClient.address,
                                                     locationLink: newClient.locationLink,
-                                                    coords: newClient.coords
+                                                    coords: newClient.coords,
+                                                    bags: newClient.bags
                                                 });
 
                                                 showToast('Cliente guardado en RUTA MATUTINA');
-                                                setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '' });
+                                                setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '', bags: 0 });
                                                 setDraftMarker(null);
                                                 getBusinesses().then(setBusinesses);
                                             } catch (err: any) {
@@ -1075,11 +1094,12 @@ const FleetMonitor = () => {
                                                     phone: newClient.phone,
                                                     address: newClient.address,
                                                     locationLink: newClient.locationLink,
-                                                    coords: newClient.coords
+                                                    coords: newClient.coords,
+                                                    bags: newClient.bags
                                                 });
 
                                                 showToast('Cliente guardado en RUTA VESPERTINA');
-                                                setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '' });
+                                                setNewClient({ name: '', phone: '', address: '', locationLink: '', coords: '', bags: 0 });
                                                 setDraftMarker(null);
                                                 getBusinesses().then(setBusinesses);
                                             } catch (err: any) {
@@ -1319,9 +1339,17 @@ const FleetMonitor = () => {
                                                 {client.order < 9999 ? client.order : cIdx + 1}
                                             </div>
                                             <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
-                                                <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
-                                                    {client.name || 'Cliente sin nombre'}
-                                                </p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
+                                                        {client.name || 'Cliente sin nombre'}
+                                                    </p>
+                                                    {client.bags > 0 && !client.isDelivered && (
+                                                        <span className="px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-pink-400 text-[9px] font-black uppercase flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[10px]">shopping_bag</span>
+                                                            {client.bags} {client.bags === 1 ? 'bolsa' : 'bolsas'}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address || 'Ubicación'}>
                                                     <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
                                                     {client.address || 'Ubicación de entrega'}
