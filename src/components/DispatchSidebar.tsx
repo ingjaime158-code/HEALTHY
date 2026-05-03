@@ -12,6 +12,7 @@ export interface DispatchSidebarProps {
     selectedDriverForDetails: DriverRouteInfo | null;
     setSelectedDriverForDetails: (driver: DriverRouteInfo | null) => void;
     driverColors: { [key: string]: string };
+    loadingRoute: boolean;
     businesses: Business[];
     drivers: Driver[];
     selectedMapTripId: string | null;
@@ -27,11 +28,15 @@ export interface DispatchSidebarProps {
     calcWaitCost: (minutes: number, ratePerMin: number) => number;
 }
 
+const DRIVER_COLORS = [
+    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'
+];
+
 const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     isDispatchOpen, setIsDispatchOpen,
     selectedRoute, activeTrips, setActiveTrips,
     routeDrivers, selectedDriverForDetails, setSelectedDriverForDetails,
-    driverColors, businesses, drivers,
+    driverColors, loadingRoute, businesses, drivers,
     selectedMapTripId, setSelectedMapTripId,
     updateTrip, updateTripStatus,
     showToast, handleCopyClientLinkSidebar, handleCopyTrip,
@@ -274,7 +279,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
 
                                     // Lógica de Tiempos (Retraso o Espera)
                                     const scheduledDate = trip.scheduledAt ? new Date(trip.scheduledAt) : null;
-                                    const nowMs = currentTime.getTime();
+                                    const nowMs = new Date().getTime();
 
                                     const delayMins = (() => {
                                         if (!scheduledDate) return 0;

@@ -968,6 +968,7 @@ const FleetMonitor = () => {
                 selectedDriverForDetails={selectedDriverForDetails}
                 setSelectedDriverForDetails={setSelectedDriverForDetails}
                 driverColors={driverColors}
+                loadingRoute={loadingRoute}
                 businesses={businesses}
                 drivers={drivers}
                 selectedMapTripId={selectedMapTripId}
