@@ -32,55 +32,6 @@ const DRIVER_COLORS = [
     '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'
 ];
 
-/** Splits a phone string that may contain '&' into individual cleaned numbers */
-function parsePhones(raw: string): string[] {
-    if (!raw || !raw.trim()) return [];
-    return raw.split('&').map(p => p.trim()).filter(Boolean);
-}
-
-/** Phone Picker Modal – shown when a client has 2+ phone numbers */
-const PhonePickerModal: React.FC<{
-    phones: string[];
-    clientName: string;
-    action: 'call' | 'whatsapp';
-    onSelect: (phone: string) => void;
-    onClose: () => void;
-}> = ({ phones, clientName, action, onSelect, onClose }) => (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-        <div className="bg-[#1a1a2e] border border-white/10 rounded-2xl shadow-2xl w-80 overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-white/10 bg-white/5">
-                <p className="text-white text-sm font-bold">
-                    {action === 'call' ? '📞 Llamar a' : '💬 WhatsApp a'} {clientName}
-                </p>
-                <p className="text-gray-400 text-[11px] mt-0.5">Selecciona el número</p>
-            </div>
-            <div className="p-3 flex flex-col gap-2">
-                {phones.map((phone, i) => (
-                    <button
-                        key={i}
-                        onClick={() => onSelect(phone)}
-                        className={`w-full text-left px-4 py-3 rounded-xl border transition-all flex items-center gap-3 ${
-                            action === 'call'
-                                ? 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 text-blue-300'
-                                : 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-300'
-                        }`}
-                    >
-                        <span className="material-symbols-outlined text-[18px]">
-                            {action === 'call' ? 'call' : 'chat'}
-                        </span>
-                        <span className="font-mono text-sm font-bold">{phone}</span>
-                    </button>
-                ))}
-            </div>
-            <div className="px-3 pb-3">
-                <button onClick={onClose} className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold uppercase tracking-wider transition-colors border border-white/5">
-                    Cancelar
-                </button>
-            </div>
-        </div>
-    </div>
-);
-
 const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     isDispatchOpen, setIsDispatchOpen,
     selectedRoute, activeTrips, setActiveTrips,
@@ -96,45 +47,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     const [editWaitRate, setEditWaitRate] = useState<number>(0);
     const [savingEdit, setSavingEdit] = useState(false);
 
-    // Phone picker state
-    const [phonePicker, setPhonePicker] = useState<{ phones: string[]; clientName: string; action: 'call' | 'whatsapp' } | null>(null);
-
-    /** Initiate a call – if multiple phones, show picker */
-    const handleCall = (rawPhone: string, clientName: string) => {
-        const phones = parsePhones(rawPhone);
-        if (phones.length === 0) { showToast('Este cliente no tiene teléfono registrado', 'info'); return; }
-        if (phones.length === 1) {
-            window.open(`tel:${phones[0].replace(/\D/g, '')}`, '_self');
-        } else {
-            setPhonePicker({ phones, clientName, action: 'call' });
-        }
-    };
-
-    /** Initiate a WhatsApp – if multiple phones, show picker */
-    const handleWhatsApp = (rawPhone: string, clientName: string) => {
-        const phones = parsePhones(rawPhone);
-        if (phones.length === 0) { showToast('Este cliente no tiene teléfono registrado', 'info'); return; }
-        if (phones.length === 1) {
-            const clean = phones[0].replace(/\D/g, '');
-            window.open(`https://wa.me/${clean}`, '_blank');
-        } else {
-            setPhonePicker({ phones, clientName, action: 'whatsapp' });
-        }
-    };
-
-    /** Execute phone action from the picker */
-    const executePhoneAction = (phone: string) => {
-        const clean = phone.replace(/\D/g, '');
-        if (phonePicker?.action === 'call') {
-            window.open(`tel:${clean}`, '_self');
-        } else {
-            window.open(`https://wa.me/${clean}`, '_blank');
-        }
-        setPhonePicker(null);
-    };
-
     return (
-        <>
             <div className={`absolute top-0 bottom-0 right-0 z-[700] flex items-stretch transition-all duration-300 ${isDispatchOpen ? 'w-[400px]' : 'w-0'}`}>
                 {/* Toggle Button */}
                 <button
@@ -226,58 +139,29 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                         {selectedDriverForDetails?.clients?.length || 0} CLIENTES EN RUTA
                                     </p>
                                     {(selectedDriverForDetails?.clients || []).map((client, cIdx) => (
-                                        <div key={cIdx} className="bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg p-3 transition-colors">
-                                            <div className="flex items-start gap-3">
-                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
-                                                    {client.order < 9999 ? client.order : cIdx + 1}
-                                                </div>
-                                                <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
-                                                            {client.name || 'Cliente sin nombre'}
-                                                        </p>
-                                                        {client.bags > 0 && !client.isDelivered && (
-                                                            <span className="px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-pink-400 text-[9px] font-black uppercase flex items-center gap-1">
-                                                                <span className="material-symbols-outlined text-[10px]">shopping_bag</span>
-                                                                {client.bags} {client.bags === 1 ? 'bolsa' : 'bolsas'}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address || 'Ubicación'}>
-                                                        <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
-                                                        {client.address || 'Ubicación de entrega'}
+                                        <div key={cIdx} className="bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg p-3 flex items-start gap-3 transition-colors">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
+                                                {client.order < 9999 ? client.order : cIdx + 1}
+                                            </div>
+                                            <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
+                                                <div className="flex items-center gap-2">
+                                                    <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
+                                                        {client.name || 'Cliente sin nombre'}
                                                     </p>
-                                                    {client.phone && (
-                                                        <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.phone}>
-                                                            <span className="material-symbols-outlined text-[11px] text-blue-400">call</span>
-                                                            {client.phone}
-                                                        </p>
+                                                    {client.bags > 0 && !client.isDelivered && (
+                                                        <span className="px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-pink-400 text-[9px] font-black uppercase flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[10px]">shopping_bag</span>
+                                                            {client.bags} {client.bags === 1 ? 'bolsa' : 'bolsas'}
+                                                        </span>
                                                     )}
                                                 </div>
-                                                {client.isDelivered && (
-                                                    <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
-                                                )}
+                                                <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address || 'Ubicación'}>
+                                                    <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
+                                                    {client.address || 'Ubicación de entrega'}
+                                                </p>
                                             </div>
-                                            {/* Call & WhatsApp buttons */}
-                                            {client.phone && !client.isDelivered && (
-                                                <div className="flex items-center gap-2 mt-2 pl-11">
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); handleCall(client.phone, client.name); }}
-                                                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/25 text-blue-400 hover:bg-blue-500/25 transition-all text-[10px] font-bold"
-                                                        title={parsePhones(client.phone).length > 1 ? 'Seleccionar número para llamar' : 'Llamar'}
-                                                    >
-                                                        <span className="material-symbols-outlined text-[13px]">call</span>
-                                                        Llamar{parsePhones(client.phone).length > 1 ? ` (${parsePhones(client.phone).length})` : ''}
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); handleWhatsApp(client.phone, client.name); }}
-                                                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/25 transition-all text-[10px] font-bold"
-                                                        title={parsePhones(client.phone).length > 1 ? 'Seleccionar número para WhatsApp' : 'WhatsApp'}
-                                                    >
-                                                        <span className="material-symbols-outlined text-[13px]">chat</span>
-                                                        WhatsApp{parsePhones(client.phone).length > 1 ? ` (${parsePhones(client.phone).length})` : ''}
-                                                    </button>
-                                                </div>
+                                            {client.isDelivered && (
+                                                <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
                                             )}
                                         </div>
                                     ))}
@@ -835,18 +719,6 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                     </div>
                 </div>
             </div>
-
-            {/* Phone Picker Modal */}
-            {phonePicker && (
-                <PhonePickerModal
-                    phones={phonePicker.phones}
-                    clientName={phonePicker.clientName}
-                    action={phonePicker.action}
-                    onSelect={executePhoneAction}
-                    onClose={() => setPhonePicker(null)}
-                />
-            )}
-        </>
     );
 };
 
