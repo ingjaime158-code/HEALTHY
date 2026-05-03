@@ -195,7 +195,7 @@ const MapContent = ({
                                     <Pin background={tripColor} glyphColor={'white'} borderColor={'#ffffff'} scale={1.1} />
                                     <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-white px-3 py-2 rounded-lg shadow-xl text-xs font-bold whitespace-nowrap min-w-[120px] z-[60] border-2" style={{ borderColor: tripColor }}>
                                         <div className="flex flex-col gap-0.5">
-                                            <span className="text-gray-900 leading-tight">📍 {trip.passengerName}</span>
+                                            <span className="text-gray-900 leading-tight">📍 {trip.clientName}</span>
                                             <span className="text-gray-500 font-normal leading-tight text-[10px] truncate max-w-[150px]">{trip.origin}</span>
                                         </div>
                                         {/* Little triangle pointer */}
@@ -227,7 +227,7 @@ const MapContent = ({
 
                                         {/* Label on Hover */}
                                         <div className="absolute top-10 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[60] transition-opacity pointer-events-none">
-                                            Destino: {trip.passengerName}
+                                            Destino: {trip.clientName}
                                         </div>
                                     </div>
                                 </AdvancedMarker>
@@ -236,10 +236,10 @@ const MapContent = ({
                     );
                 })}
 
-                {/* Marcadores de Choferes en Vivo */}
+                {/* Marcadores de Repartidores en Vivo */}
                 {Object.keys(driverPositions).map((driverId) => {
                     const pos = driverPositions[driverId];
-                    // Generar un color único y consistente basado en el UUID del chofer
+                    // Generar un color único y consistente basado en el UUID del repartidor
                     let hash = 0;
                     for (let i = 0; i < driverId.length; i++) hash = driverId.charCodeAt(i) + ((hash << 5) - hash);
                     const fallbackColor = TRIP_COLORS[Math.abs(hash) % TRIP_COLORS.length];
@@ -250,7 +250,7 @@ const MapContent = ({
                             <div className="flex flex-col items-center group cursor-pointer relative">
                                 {/* Tooltip text (Upright) */}
                                 <div className="absolute bottom-10 bg-black/90 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-[70] shadow-xl border border-white/20">
-                                    {driverNames[driverId] || 'Chofer'}
+                                    {driverNames[driverId] || 'Repartidor'}
                                 </div>
                                 
                                 {/* Vehículo (Rotado según GPS heading) */}

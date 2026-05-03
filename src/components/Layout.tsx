@@ -21,7 +21,7 @@ const LayoutContent = () => {
         (payload) => {
           const newTrip = payload.new;
           showToast(
-            `📦 Nueva Entrega: ${newTrip.passenger_name || 'Desconocido'}`,
+            `📦 Nueva Entrega: ${newTrip.client_name || 'Desconocido'}`,
             'info'
           );
         }

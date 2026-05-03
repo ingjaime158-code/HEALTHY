@@ -77,8 +77,8 @@ export interface Trip {
     baseFare: number;
     distanceFare: number;
     image: string;
-    passengerName?: string;
-    passengerPhone?: string;
+    clientName?: string;
+    clientPhone?: string;
     originLat?: number;
     originLng?: number;
     destLat?: number;
@@ -102,7 +102,7 @@ export interface Trip {
     receiptId?: string;
     scheduledAt?: string;
     driverArrivedAt?: string;
-    passengerBoardedAt?: string;
+    pickedUpAt?: string;
     tripStartedAt?: string;
     waitTimeMinutes?: number;
     waitTimeCost?: number;

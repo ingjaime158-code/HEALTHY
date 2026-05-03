@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('E2E Completo del Proyecto CYTIO', () => {
+test.describe('E2E Completo del Proyecto Healthy Dreams', () => {
 
     test('1. Landing Page carga correctamente', async ({ page }) => {
         await page.goto('/');
-        await expect(page).toHaveTitle(/CYTIO/i);
+        await expect(page).toHaveTitle(/Healthy Dreams/i);
         // Verificar elementos clave de la landing
         await expect(page.getByText('Sinergia Operativa').first()).toBeVisible();
         await expect(page.getByRole('button', { name: /Acceso Portal/i })).toBeVisible();
@@ -21,9 +21,9 @@ test.describe('E2E Completo del Proyecto CYTIO', () => {
     test('3. Flujo de Administrador (Login Simulado y Navegación)', async ({ page }) => {
         // Setup admin session
         await page.addInitScript(() => {
-            localStorage.setItem('cytio_current_user', 'admin@cytio.com');
-            localStorage.setItem('cytio_user_role', 'Administrador');
-            localStorage.setItem('cytio_test_skip_auth_clear', 'true');
+            localStorage.setItem('hd_current_user', 'admin@healthydreams.com');
+            localStorage.setItem('hd_user_role', 'Administrador');
+            localStorage.setItem('hd_test_skip_auth_clear', 'true');
         });
 
         // Mock Supabase API
@@ -62,9 +62,9 @@ test.describe('E2E Completo del Proyecto CYTIO', () => {
     test('4. Verificación de Nuevas Funcionalidades (Tarifas, Monitor y Trips)', async ({ page }) => {
         // Setup same admin session
         await page.addInitScript(() => {
-            localStorage.setItem('cytio_current_user', 'admin@cytio.com');
-            localStorage.setItem('cytio_user_role', 'Administrador');
-            localStorage.setItem('cytio_test_skip_auth_clear', 'true');
+            localStorage.setItem('hd_current_user', 'admin@healthydreams.com');
+            localStorage.setItem('hd_user_role', 'Administrador');
+            localStorage.setItem('hd_test_skip_auth_clear', 'true');
         });
 
         // Mock Supabase API
@@ -93,7 +93,7 @@ test.describe('E2E Completo del Proyecto CYTIO', () => {
                         body: JSON.stringify([
                             {
                                 id: 'trip-1',
-                                passenger_name: 'Juan Perez',
+                                client_name: 'Juan Perez',
                                 status: 'Pendiente',
                                 cost: 150,
                                 created_at: new Date().toISOString(),
@@ -103,7 +103,7 @@ test.describe('E2E Completo del Proyecto CYTIO', () => {
                             },
                             {
                                 id: 'trip-2',
-                                passenger_name: 'Maria Lopez',
+                                client_name: 'Maria Lopez',
                                 status: 'En Progreso',
                                 cost: 200,
                                 created_at: new Date().toISOString(),

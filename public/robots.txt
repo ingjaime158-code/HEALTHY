@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.cytio.org/sitemap.xml
+Sitemap: https://www.healthydreams.com/sitemap.xml

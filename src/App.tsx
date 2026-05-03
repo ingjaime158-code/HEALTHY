@@ -50,7 +50,7 @@ const RoleGuard = ({ children, allowedRoles }: { children: React.ReactNode, allo
 
     // Fall back to role-based check (for users without custom allowedViews)
     if (checked && !allowedRoles.includes(effectiveRole)) {
-        if (effectiveRole === 'Chofer') return <Navigate to="/chofer" replace />;
+        if (effectiveRole === 'Chofer') return <Navigate to="/repartidor" replace />;
         if (effectiveRole === 'Usuario') return <Navigate to="/monitor" replace />;
         return <Navigate to="/monitor" replace />;
     }
@@ -59,16 +59,13 @@ const RoleGuard = ({ children, allowedRoles }: { children: React.ReactNode, allo
 };
 
 const FleetMonitor = React.lazy(() => import('./pages/Monitor'));
-const TripManagement = React.lazy(() => import('./pages/Trips'));
 const Registry = React.lazy(() => import('./pages/Registry'));
-const PricingSettings = React.lazy(() => import('./pages/Settings'));
+
 const Login = React.lazy(() => import('./pages/Login'));
 const UserAccess = React.lazy(() => import('./pages/UserAccess'));
 const TripTracking = React.lazy(() => import('./pages/TripTracking'));
 const DriverTracker = React.lazy(() => import('./pages/DriverTracker'));
 const ClientConfirmation = React.lazy(() => import('./pages/ClientConfirmation'));
-const Leads = React.lazy(() => import('./pages/Leads'));
-const Comercializadora = React.lazy(() => import('./pages/Comercializadora'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 const GoogleSheetView = React.lazy(() => import('./pages/GoogleSheetView'));
 const MileageDashboard = React.lazy(() => import('./pages/MileageDashboard'));
@@ -105,7 +102,7 @@ const App = () => {
                         <Route path="/confirmacion/:tripId" element={<ClientConfirmation />} />
                         <Route path="/tracking/:tripId" element={<TripTracking />} />
                         <Route path="/driver/:tripId" element={<DriverTracker />} />
-                        <Route path="/chofer" element={
+                        <Route path="/repartidor" element={
                             <div className="flex flex-col h-screen w-full items-center justify-center bg-gray-50 p-6 text-center gap-4">
                                 <span className="material-symbols-outlined text-6xl text-primary">delivery_dining</span>
                                 <h2 className="text-3xl font-extrabold text-gray-900">Aplicación Móvil Requerida</h2>
@@ -120,24 +117,9 @@ const App = () => {
                                     <FleetMonitor />
                                 </RoleGuard>
                             } />
-                            <Route path="/trips/:tripId?" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <TripManagement />
-                                </RoleGuard>
-                            } />
                             <Route path="/registry/:tab?/:action?/:id?" element={
                                 <RoleGuard allowedRoles={['Administrador']}>
                                     <Registry />
-                                </RoleGuard>
-                            } />
-                            <Route path="/comercializadora/:tab?/:action?/:id?" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <Comercializadora />
-                                </RoleGuard>
-                            } />
-                            <Route path="/leads" element={
-                                <RoleGuard allowedRoles={['Administrador', 'Usuario']}>
-                                    <Leads />
                                 </RoleGuard>
                             } />
                             <Route path="/kilometros" element={
@@ -145,11 +127,7 @@ const App = () => {
                                     <MileageDashboard />
                                 </RoleGuard>
                             } />
-                            <Route path="/settings" element={
-                                <RoleGuard allowedRoles={['Administrador']}>
-                                    <PricingSettings />
-                                </RoleGuard>
-                            } />
+
                             <Route path="/access" element={
                                 <RoleGuard allowedRoles={['Administrador']}>
                                     <UserAccess />

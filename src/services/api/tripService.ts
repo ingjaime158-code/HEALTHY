@@ -72,8 +72,8 @@ const mapDbRowToTrip = (t: any): Trip => ({
     baseFare: Number(t.cost) > 0 ? 35 : 0,
     distanceFare: Number(t.cost) > 35 ? Number(t.cost) - 35 : 0,
     image: '',
-    passengerName: t.passenger_name || 'Desconocido',
-    passengerPhone: t.passenger_phone || '',
+    clientName: t.client_name || 'Desconocido',
+    clientPhone: t.client_phone || '',
     originLat: Number(t.origin_lat),
     originLng: Number(t.origin_lng),
     destLat: Number(t.dest_lat),
@@ -95,7 +95,7 @@ const mapDbRowToTrip = (t: any): Trip => ({
     receiptId: t.receipt_id || undefined,
     scheduledAt: t.scheduled_at,
     driverArrivedAt: t.driver_arrived_at,
-    passengerBoardedAt: t.passenger_boarded_at,
+    pickedUpAt: t.picked_up_at,
     tripStartedAt: t.trip_started_at,
     waitTimeMinutes: Number(t.wait_time_minutes || 0),
     waitTimeCost: Number(t.wait_time_cost || 0),
@@ -185,8 +185,8 @@ export const addTrip = async (trip: {
     unitId?: string; // Added field
     businessId?: string;
     driverId?: string; // Added field for manual assignment
-    passengerName?: string;
-    passengerPhone?: string;
+    clientName?: string;
+    clientPhone?: string;
     cost?: number;
     distance?: number;
     commissionAmount?: number;
@@ -208,8 +208,8 @@ export const addTrip = async (trip: {
         origin_lng: trip.origin_lng,
         dest_lat: trip.dest_lat,
         dest_lng: trip.dest_lng,
-        passenger_name: trip.passengerName,
-        passenger_phone: trip.passengerPhone,
+        client_name: trip.clientName,
+        client_phone: trip.clientPhone,
         business_id: trip.businessId || null,
         unit_id: trip.unitId || null,
         driver_id: trip.driverId || null,
@@ -240,7 +240,7 @@ export const addTrip = async (trip: {
     }
 
     if (payload.driver_id) {
-        notifyDriverAssignment(payload.driver_id, payload.scheduled_at, payload.passenger_name);
+        notifyDriverAssignment(payload.driver_id, payload.scheduled_at, payload.client_name);
     }
 
     return data.id;
@@ -304,8 +304,8 @@ export const updateTrip = async (trip: Partial<Trip> & { id: string }): Promise<
     if (trip.cost !== undefined) updatePayload.cost = trip.cost;
     if (trip.status !== undefined) updatePayload.status = trip.status;
     if (trip.driverId !== undefined) updatePayload.driver_id = trip.driverId || null;
-    if (trip.passengerName !== undefined) updatePayload.passenger_name = trip.passengerName;
-    if (trip.passengerPhone !== undefined) updatePayload.passenger_phone = trip.passengerPhone;
+    if (trip.clientName !== undefined) updatePayload.client_name = trip.clientName;
+    if (trip.clientPhone !== undefined) updatePayload.client_phone = trip.clientPhone;
     if (trip.clientConfirmed !== undefined) updatePayload.client_confirmed = trip.clientConfirmed;
     if (trip.confirmedBy !== undefined) updatePayload.confirmed_by_name = trip.confirmedBy;
 
@@ -317,7 +317,7 @@ export const updateTrip = async (trip: Partial<Trip> & { id: string }): Promise<
 
     // Additional Wait Time and Schedule Mapping
     if (trip.driverArrivedAt !== undefined) updatePayload.driver_arrived_at = trip.driverArrivedAt;
-    if (trip.passengerBoardedAt !== undefined) updatePayload.passenger_boarded_at = trip.passengerBoardedAt;
+    if (trip.pickedUpAt !== undefined) updatePayload.picked_up_at = trip.pickedUpAt;
     if (trip.tripStartedAt !== undefined) updatePayload.trip_started_at = trip.tripStartedAt;
     if (trip.waitTimeMinutes !== undefined) updatePayload.wait_time_minutes = trip.waitTimeMinutes;
     if (trip.waitTimeCost !== undefined) updatePayload.wait_time_cost = trip.waitTimeCost;
@@ -335,7 +335,7 @@ export const updateTrip = async (trip: Partial<Trip> & { id: string }): Promise<
 
     // Trigger push if driver is explicitly set in this update
     if (updatePayload.driver_id) {
-        notifyDriverAssignment(updatePayload.driver_id, updatePayload.scheduled_at || trip.scheduledAt, updatePayload.passenger_name || trip.passengerName);
+        notifyDriverAssignment(updatePayload.driver_id, updatePayload.scheduled_at || trip.scheduledAt, updatePayload.client_name || trip.clientName);
     }
 
     return true;

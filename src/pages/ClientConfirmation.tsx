@@ -99,7 +99,7 @@ const ClientConfirmation = () => {
                             <span className="material-symbols-outlined notranslate text-4xl text-white" translate="no">receipt_long</span>
                         </div>
                         <h1 className="text-2xl font-bold text-white tracking-wide">Healthy Dream <span className="font-light">Logística</span></h1>
-                        <p className="text-slate-300 mt-2 text-sm">Resumen de Carrera</p>
+                        <p className="text-slate-300 mt-2 text-sm">Resumen de Entrega</p>
                     </div>
                 </div>
 
@@ -249,7 +249,7 @@ const ClientConfirmation = () => {
                                     )}
                                 </button>
                                 <p className="text-center text-xs text-slate-500 font-medium">
-                                    Al confirmar aceptas que este es el costo de la carrera solicitada.
+                                    Al confirmar aceptas que este es el costo de la entrega solicitada.
                                 </p>
                             </div>
                         )}

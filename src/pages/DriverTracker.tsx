@@ -453,7 +453,7 @@ const DriverTracker = () => {
                     <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-4">
                         <div>
                             <p className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Destinatario</p>
-                            <h3 className="text-lg font-bold text-white leading-none">{trip.passenger_name || 'Usuario'}</h3>
+                            <h3 className="text-lg font-bold text-white leading-none">{trip.client_name || 'Usuario'}</h3>
                         </div>
                         <div className="w-10 h-10 rounded-full bg-[#170c86] flex items-center justify-center text-white border border-white/10">
                             <span className="material-symbols-outlined">person</span>

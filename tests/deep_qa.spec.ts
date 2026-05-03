@@ -5,9 +5,9 @@ test.describe('Deep QA: Flujos Críticos', () => {
     test.beforeEach(async ({ page }) => {
         // Bypass login
         await page.addInitScript(() => {
-            localStorage.setItem('cytio_current_user', 'qa_robot@cytio.com');
-            localStorage.setItem('cytio_user_role', 'Administrador');
-            localStorage.setItem('cytio_test_skip_auth_clear', 'true');
+            localStorage.setItem('hd_current_user', 'qa_robot@healthydreams.com');
+            localStorage.setItem('hd_user_role', 'Administrador');
+            localStorage.setItem('hd_test_skip_auth_clear', 'true');
         });
 
         // Automatically accept any alerts that might pop up (like validation errors)
@@ -53,14 +53,14 @@ test.describe('Deep QA: Flujos Críticos', () => {
         // Fill passenger info
         const nameInput = page.getByRole('textbox', { name: 'Nombre del pasajero' });
         await expect(nameInput).toBeVisible();
-        await nameInput.fill('QA Robot Passenger');
+        await nameInput.fill('QA Robot Client');
 
         // Submit Trip
         await page.getByRole('button', { name: 'Confirmar y Crear Viaje' }).click();
 
         // Wait until it appears in the trip list (should show 'En Progreso')
         // Using locator more flexibly to handle potential markup trees
-        await expect(page.getByText('QA Robot Passenger')).toBeVisible({ timeout: 15000 });
+        await expect(page.getByText('QA Robot Client')).toBeVisible({ timeout: 15000 });
         await expect(page.getByText('En Progreso').first()).toBeVisible({ timeout: 15000 });
 
         // We want to finish the trip
