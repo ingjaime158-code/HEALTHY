@@ -879,17 +879,27 @@ const FleetMonitor = () => {
                                 setLoadingRoute(true);
                                 setIsDispatchOpen(true);
                                 try {
-                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
-                                    const progress = await buildDriverProgress(MORNING_SHEET_ID, MORNING_GID, 'morning', dbDrivers || []);
-                                    setRouteDrivers(progress);
-                                    // Fetch master map URL from destinations table (Mapas menu)
                                     const allMaps = await adminSelect('destinations');
                                     const mapEntry = allMaps?.find((m: any) => m.morning_map_url && m.morning_map_url.length > 5);
                                     if (mapEntry) {
                                         setMyMapUrl(mapEntry.morning_map_url);
                                         setShowMyMap(true);
+                                    } else {
+                                        setShowMyMap(false);
+                                        setMyMapUrl(null);
                                     }
-                                } catch (e) { console.error(e); }
+                                } catch (e) {
+                                    console.error('[Monitor] Error al cargar mapa:', e);
+                                }
+                                
+                                try {
+                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
+                                    const progress = await buildDriverProgress(MORNING_SHEET_ID, MORNING_GID, 'morning', dbDrivers || []);
+                                    setRouteDrivers(progress);
+                                } catch (e: any) { 
+                                    console.error('[Monitor] Error obteniendo choferes:', e);
+                                    alert('Error al cargar la ruta: ' + e.message);
+                                }
                                 setLoadingRoute(false);
                             } else {
                                 setRouteDrivers([]);
@@ -911,17 +921,27 @@ const FleetMonitor = () => {
                                 setLoadingRoute(true);
                                 setIsDispatchOpen(true);
                                 try {
-                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
-                                    const progress = await buildDriverProgress(EVENING_SHEET_ID, EVENING_GID, 'evening', dbDrivers || []);
-                                    setRouteDrivers(progress);
-                                    // Fetch master map URL from destinations table (Mapas menu)
                                     const allMaps = await adminSelect('destinations');
                                     const mapEntry = allMaps?.find((m: any) => m.evening_map_url && m.evening_map_url.length > 5);
                                     if (mapEntry) {
                                         setMyMapUrl(mapEntry.evening_map_url);
                                         setShowMyMap(true);
+                                    } else {
+                                        setShowMyMap(false);
+                                        setMyMapUrl(null);
                                     }
-                                } catch (e) { console.error(e); }
+                                } catch (e) {
+                                    console.error('[Monitor] Error al cargar mapa:', e);
+                                }
+
+                                try {
+                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
+                                    const progress = await buildDriverProgress(EVENING_SHEET_ID, EVENING_GID, 'evening', dbDrivers || []);
+                                    setRouteDrivers(progress);
+                                } catch (e: any) { 
+                                    console.error('[Monitor] Error obteniendo choferes:', e);
+                                    alert('Error al cargar la ruta: ' + e.message);
+                                }
                                 setLoadingRoute(false);
                             } else {
                                 setRouteDrivers([]);
