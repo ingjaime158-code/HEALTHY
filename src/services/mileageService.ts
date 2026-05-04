@@ -34,7 +34,7 @@ export const fetchMileageData = async (monthName: string): Promise<DaySummary[]>
     }
 
     // Añadimos un timestamp para evitar que el navegador cachee datos de meses anteriores
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}&tcb=${Date.now()}`;
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}&tcb=${Date.now()}`;
     
     console.log(`[MileageService] URL Final: ${url}`);
 
@@ -75,8 +75,11 @@ const parseMileageCsv = (csv: string): DaySummary[] => {
             if (currentDay && currentDay.records.length > 0) {
                 summaries.push(currentDay);
             }
+            
+            // Si por alguna razón gviz fusionó el header: "RV 03-05-26 REPARTIDOR"
+            const dateOnly = parts[0].replace(/ REPARTIDOR/gi, '').trim();
             currentDay = {
-                date: parts[0],
+                date: dateOnly,
                 records: []
             };
             parsingHeader = true;
@@ -86,6 +89,15 @@ const parseMileageCsv = (csv: string): DaySummary[] => {
         if (firstPart === 'REPARTIDOR' || firstPart.includes('KM TOTALES')) {
             parsingHeader = false;
             continue;
+        }
+
+        // Si ya hay currentDay pero seguimos en modo "parsingHeader", y encontramos una fila
+        // que parece ser datos válidos (tiene un número en la segunda columna), apagamos parsingHeader solos
+        if (currentDay && parts.length >= 2 && parts[0] !== '') {
+            const totalKm = parseFloat(parts[1]);
+            if (!isNaN(totalKm)) {
+                parsingHeader = false;
+            }
         }
 
         if (currentDay && !parsingHeader && parts.length >= 2 && parts[0] !== '') {
