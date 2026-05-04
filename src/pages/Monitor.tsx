@@ -982,6 +982,7 @@ const FleetMonitor = () => {
                         <span>Vespertina</span>
                     </button>
                 </div>
+            </div>
 
             <DispatchSidebar 
                 isDispatchOpen={isDispatchOpen}
