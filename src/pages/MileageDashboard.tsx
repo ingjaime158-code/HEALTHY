@@ -5,10 +5,10 @@ import {
     AreaChart, Area, LabelList 
 } from 'recharts';
 
-const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril'];
+const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo'];
 
 const MileageDashboard: React.FC = () => {
-    const [selectedMonth, setSelectedMonth] = useState('Abril');
+    const [selectedMonth, setSelectedMonth] = useState('Mayo');
     const [data, setData] = useState<DaySummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

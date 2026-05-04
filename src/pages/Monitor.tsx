@@ -153,8 +153,6 @@ const FleetMonitor = () => {
     const [loadingRoute, setLoadingRoute] = useState(false);
     const [showMyMap, setShowMyMap] = useState(false);
     const [myMapUrl, setMyMapUrl] = useState('');
-    const [showWaTemplateEditor, setShowWaTemplateEditor] = useState(false);
-    const [waTemplate, setWaTemplate] = useState(() => localStorage.getItem('hd_whatsapp_template') || 'Hola {nombre}, sigue tu entrega en tiempo real aquí: {link}');
 
     useEffect(() => {
         setSelectedDriverForDetails(null);
@@ -984,85 +982,6 @@ const FleetMonitor = () => {
                         <span>Vespertina</span>
                     </button>
                 </div>
-                    <button
-                        onClick={() => setShowWaTemplateEditor(true)}
-                        className="ml-2 h-10 w-10 flex items-center justify-center rounded-xl bg-[#1a1a2e]/90 backdrop-blur-xl border border-white/[0.08] text-gray-400 hover:text-white hover:bg-white/10 transition-all shadow-2xl"
-                        title="Configurar mensaje de WhatsApp"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">settings</span>
-                    </button>
-            </div>
-
-            {/* WhatsApp Template Editor Modal */}
-            {showWaTemplateEditor && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowWaTemplateEditor(false)}>
-                    <div className="bg-[#1a1a2e] border border-white/10 rounded-2xl shadow-2xl w-[480px] overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="px-5 py-4 border-b border-white/10 bg-white/5 flex items-center justify-between">
-                            <div>
-                                <p className="text-white text-sm font-bold flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-emerald-400 text-[18px]">chat</span>
-                                    Mensaje Predeterminado de WhatsApp
-                                </p>
-                                <p className="text-gray-400 text-[11px] mt-0.5">Este mensaje se envía automáticamente al crear una entrega</p>
-                            </div>
-                            <button onClick={() => setShowWaTemplateEditor(false)} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
-                                <span className="material-symbols-outlined text-[18px]">close</span>
-                            </button>
-                        </div>
-                        <div className="p-5 space-y-4">
-                            <div>
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Plantilla del Mensaje</label>
-                                <textarea
-                                    value={waTemplate}
-                                    onChange={(e) => setWaTemplate(e.target.value)}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400 placeholder-gray-500 transition-all min-h-[120px] font-mono"
-                                    placeholder="Escribe tu mensaje aquí..."
-                                />
-                            </div>
-                            <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-3">
-                                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2">Variables Disponibles</p>
-                                <div className="flex flex-wrap gap-2">
-                                    <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-mono font-bold">{'{nombre}'}</span>
-                                    <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-mono font-bold">{'{link}'}</span>
-                                    <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] font-mono font-bold">{'{costo}'}</span>
-                                </div>
-                                <p className="text-gray-500 text-[10px] mt-2">
-                                    <b>{'{nombre}'}</b> = nombre del cliente • <b>{'{link}'}</b> = enlace de rastreo • <b>{'{costo}'}</b> = costo del pedido
-                                </p>
-                            </div>
-                            <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Vista Previa</p>
-                                <p className="text-gray-200 text-xs whitespace-pre-wrap">
-                                    {waTemplate
-                                        .replace(/{nombre}/gi, 'Juan Pérez')
-                                        .replace(/{link}/gi, 'https://ejemplo.com/tracking/abc123')
-                                        .replace(/{costo}/gi, '$150.00')}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="px-5 pb-5 flex gap-3">
-                            <button
-                                onClick={() => {
-                                    setWaTemplate('Hola {nombre}, sigue tu entrega en tiempo real aquí: {link}');
-                                }}
-                                className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold uppercase tracking-wider transition-colors border border-white/5"
-                            >
-                                Restaurar Original
-                            </button>
-                            <button
-                                onClick={() => {
-                                    localStorage.setItem('hd_whatsapp_template', waTemplate);
-                                    setShowWaTemplateEditor(false);
-                                    showToast('Plantilla de WhatsApp guardada', 'success');
-                                }}
-                                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider transition-colors shadow-lg shadow-emerald-900/30"
-                            >
-                                Guardar Plantilla
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <DispatchSidebar 
                 isDispatchOpen={isDispatchOpen}
