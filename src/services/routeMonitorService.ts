@@ -203,32 +203,32 @@ function similarityScore(a: string, b: string): number {
  */
 function findOrderForClient(
   normalizedClientName: string,
-  orderMap: Map<string, number>
-): number | undefined {
+  orderMap: Map<string, { orden: number; bags: number }>
+): { orden: number; bags: number } | undefined {
   // 1. Exact match
   const exact = orderMap.get(normalizedClientName);
   if (exact !== undefined) return exact;
 
   // 2. Check if one contains the other (substring match)
-  for (const [sheetName, orden] of orderMap) {
+  for (const [sheetName, data] of orderMap) {
     if (normalizedClientName.includes(sheetName) || sheetName.includes(normalizedClientName)) {
-      return orden;
+      return data;
     }
   }
 
   // 3. Fuzzy match — pick best candidate above threshold
   let bestScore = 0;
-  let bestOrden: number | undefined;
-  for (const [sheetName, orden] of orderMap) {
+  let bestData: { orden: number; bags: number } | undefined;
+  for (const [sheetName, data] of orderMap) {
     const score = similarityScore(normalizedClientName, sheetName);
     if (score > bestScore) {
       bestScore = score;
-      bestOrden = orden;
+      bestData = data;
     }
   }
 
-  if (bestScore >= 0.75 && bestOrden !== undefined) {
-    return bestOrden;
+  if (bestScore >= 0.75 && bestData !== undefined) {
+    return bestData;
   }
 
   return undefined;
@@ -236,11 +236,11 @@ function findOrderForClient(
 
 /**
  * Downloads a driver's individual route sheet and returns a Map of
- * normalized client name → ORDEN number.
+ * normalized client name → ORDEN number and BAGS count.
  * Entries with ORDEN = 0 (PUNTO DE INICIO) are excluded.
  */
-async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number>> {
-  const orderMap = new Map<string, number>();
+async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, { orden: number; bags: number }>> {
+  const orderMap = new Map<string, { orden: number; bags: number }>();
 
   const sheetId = extractSheetId(sheetUrl);
   if (!sheetId) return orderMap;
@@ -264,6 +264,7 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
     // Look specifically for ORDEN column
     const ordenIdx = header.findIndex(h => h.includes('ORDEN'));
     const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
+    const bagsIdx = header.findIndex(h => h.includes('BOLSA'));
 
     if (ordenIdx === -1 || nombreIdx === -1) {
       console.warn('[routeMonitor] Driver sheet missing ORDEN or NOMBRE column. Header:', header);
@@ -274,11 +275,12 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, number
       const fields = parsedRows[i];
       const orden = parseInt(fields[ordenIdx] || '', 10);
       const nombre = normalizeName(fields[nombreIdx] || '');
+      const bags = bagsIdx >= 0 ? (parseInt(fields[bagsIdx] || '0', 10) || 0) : 0;
 
       // Skip ORDEN 0 (PUNTO DE INICIO) and invalid entries
       if (isNaN(orden) || orden === 0 || !nombre) continue;
 
-      orderMap.set(nombre, orden);
+      orderMap.set(nombre, { orden, bags });
     }
 
     console.log(`[routeMonitor] Driver sheet parsed: ${orderMap.size} client orders loaded`);
@@ -374,12 +376,13 @@ export async function buildDriverProgress(
 
       if (orderMap.size > 0) {
         let matchedCount = 0;
-        // Apply ORDEN from the driver's sheet to each client
+        // Apply ORDEN and BOLSAS from the driver's sheet to each client
         for (const client of clients) {
           const normalizedClientName = normalizeName(client.name);
-          const driverOrder = findOrderForClient(normalizedClientName, orderMap);
-          if (driverOrder !== undefined) {
-            client.order = driverOrder;
+          const driverData = findOrderForClient(normalizedClientName, orderMap);
+          if (driverData !== undefined) {
+            client.order = driverData.orden;
+            client.bags = driverData.bags > 0 ? driverData.bags : client.bags; // Prefer driver sheet bags, fallback to master
             matchedCount++;
           } else {
             // Unmatched clients go to the bottom

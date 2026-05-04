@@ -18,7 +18,8 @@ const GIDS: { [key: string]: string } = {
     'Enero': '1003618615',
     'Febrero': '37267146',
     'Marzo': '2113545175',
-    'Abril': '1900833549'
+    'Abril': '1900833549',
+    'Mayo': '1530282506'
 };
 
 export const fetchMileageData = async (monthName: string): Promise<DaySummary[]> => {
