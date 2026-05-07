@@ -3,6 +3,7 @@ import { Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
 import { Trip, Business, FleetUnit } from '../services/dataService';
 import TripRoute from './TripRoute';
 import KmlOverlay from './KmlOverlay';
+import TrafficLayer from './TrafficLayer';
 
 const DEFAULT_CENTER = { lat: 25.6866, lng: -100.3161 }; // Monterrey/Guadalupe
 
@@ -26,6 +27,7 @@ export interface MapContentProps {
     draftMarker?: { lat: number, lng: number } | null;
     onDraftMarkerDragEnd?: (lat: number, lng: number) => void;
     kmlUrl?: string | null;
+    showTraffic?: boolean;
 }
 
 const MapContent = ({ 
@@ -47,7 +49,8 @@ const MapContent = ({
     selectedTripId,
     draftMarker,
     onDraftMarkerDragEnd,
-    kmlUrl
+    kmlUrl,
+    showTraffic
 }: MapContentProps) => {
     const TRIP_COLORS = [
         '#2563eb', // Blue
@@ -165,6 +168,9 @@ const MapContent = ({
             >
                 {/* KML Layer from Google My Maps (syncs with zoom/pan) */}
                 {kmlUrl && <KmlOverlay kmlUrl={kmlUrl} />}
+
+                {/* Real-time Traffic Layer */}
+                {showTraffic && <TrafficLayer />}
 
                 {/* Render Routes and Markers for Active Trips */}
                 {activeTrips.map((trip, index) => {

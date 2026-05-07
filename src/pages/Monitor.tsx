@@ -107,6 +107,7 @@ const FleetMonitor = () => {
     // Filtros de visualización
     const [showBusinesses, setShowBusinesses] = useState(true);
     const [showUnits, setShowUnits] = useState(true);
+    const [showTraffic, setShowTraffic] = useState(false);
 
     // Create Trip State â€” Sidebar mode
     const { isSidebarOpen, setSidebarOpen: setIsSidebarOpen, selectingFor, setSelectingFor, newClient, setNewClient, resetNewClient, draftMarker, setDraftMarker } = useAppStore();
@@ -835,6 +836,7 @@ const FleetMonitor = () => {
                                 setDraftMarker({ lat, lng });
                             }}
                             kmlUrl={showMyMap ? myMapUrl : null}
+                            showTraffic={showTraffic}
                         />
 
                         {/* Sidebar: Nueva Entrega */}
@@ -980,6 +982,21 @@ const FleetMonitor = () => {
                     >
                         <span className="text-base">🌙</span>
                         <span>Vespertina</span>
+                    </button>
+
+                    {/* Traffic Toggle */}
+                    <div className="w-px h-6 bg-white/10"></div>
+                    <button
+                        onClick={() => setShowTraffic(!showTraffic)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold text-sm ${
+                            showTraffic
+                                ? 'bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                                : 'bg-white/[0.04] border border-transparent text-gray-400 hover:bg-white/[0.08] hover:text-gray-200'
+                        }`}
+                        title="Mostrar/ocultar tráfico en tiempo real"
+                    >
+                        <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: showTraffic ? "'FILL' 1" : "'FILL' 0" }}>traffic</span>
+                        <span>Tráfico</span>
                     </button>
                 </div>
             </div>
