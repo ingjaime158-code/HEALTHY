@@ -8,9 +8,26 @@ export interface NewClientState {
   locationLink: string;
   coords: string;
   bags: number;
+  planType: string;
+  plansCount: number;
+  exclusions: string;
+  siglas: string;
+  driver: string;
 }
 
-const defaultNewClient = { name: '', phone: '', address: '', locationLink: '', coords: '', bags: 0 };
+const defaultNewClient = { 
+  name: '', 
+  phone: '', 
+  address: '', 
+  locationLink: '', 
+  coords: '', 
+  bags: 0,
+  planType: 'HEALTHY',
+  plansCount: 1,
+  exclusions: 'Ninguna',
+  siglas: 'C',
+  driver: '' 
+};
 
 interface AppState {
   activeTrips: Trip[];

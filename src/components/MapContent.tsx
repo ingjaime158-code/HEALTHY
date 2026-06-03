@@ -34,7 +34,7 @@ const MapContent = ({
     activeTrips, 
     driverPositions, 
     driverNames, 
-    driverColors,
+    driverColors = {},
     businesses, 
     units, 
     showBusinesses, 
@@ -75,86 +75,6 @@ const MapContent = ({
                 streetViewControl={true}
                 className={`w-full h-full ${selectingFor ? 'cursor-crosshair' : ''}`}
                 style={{ width: '100%', height: '100%' }}
-                styles={[
-                    { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
-                    { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
-                    { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-                    {
-                        featureType: 'administrative.locality',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#d59563' }]
-                    },
-                    {
-                        featureType: 'poi',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#d59563' }]
-                    },
-                    {
-                        featureType: 'poi.park',
-                        elementType: 'geometry',
-                        stylers: [{ color: '#263c3f' }]
-                    },
-                    {
-                        featureType: 'poi.park',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#6b9a76' }]
-                    },
-                    {
-                        featureType: 'road',
-                        elementType: 'geometry',
-                        stylers: [{ color: '#38414e' }]
-                    },
-                    {
-                        featureType: 'road',
-                        elementType: 'geometry.stroke',
-                        stylers: [{ color: '#212a37' }]
-                    },
-                    {
-                        featureType: 'road',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#9ca5bbf' }]
-                    },
-                    {
-                        featureType: 'road.highway',
-                        elementType: 'geometry',
-                        stylers: [{ color: '#746855' }]
-                    },
-                    {
-                        featureType: 'road.highway',
-                        elementType: 'geometry.stroke',
-                        stylers: [{ color: '#1f2835' }]
-                    },
-                    {
-                        featureType: 'road.highway',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#f3d19c' }]
-                    },
-                    {
-                        featureType: 'transit',
-                        elementType: 'geometry',
-                        stylers: [{ color: '#2f3948' }]
-                    },
-                    {
-                        featureType: 'transit.station',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#d59563' }]
-                    },
-                    {
-                        featureType: 'water',
-                        elementType: 'geometry',
-                        stylers: [{ color: '#17263c' }]
-                    },
-                    {
-                        featureType: 'water',
-                        elementType: 'labels.text.fill',
-                        stylers: [{ color: '#515c6d' }]
-                    },
-                    {
-                        featureType: 'water',
-                        elementType: 'labels.text.stroke',
-                        stylers: [{ color: '#17263c' }]
-                    }
-                ]}
                 onClick={(e) => {
                     if (selectingFor && onMapClick && e.detail.latLng) {
                         onMapClick(e.detail.latLng.lat, e.detail.latLng.lng);
@@ -242,9 +162,13 @@ const MapContent = ({
                     );
                 })}
 
-                {/* Marcadores de Repartidores en Vivo */}
                 {Object.keys(driverPositions).map((driverId) => {
                     const pos = driverPositions[driverId];
+                    // Skip rendering this marker if coordinates are invalid to avoid hard Google Maps crashes
+                    if (!pos || isNaN(pos.lat) || isNaN(pos.lng) || pos.lat === 0 || pos.lng === 0) {
+                        return null;
+                    }
+
                     // Generar un color único y consistente basado en el UUID del repartidor
                     let hash = 0;
                     for (let i = 0; i < driverId.length; i++) hash = driverId.charCodeAt(i) + ((hash << 5) - hash);

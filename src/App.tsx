@@ -69,6 +69,8 @@ const ClientConfirmation = React.lazy(() => import('./pages/ClientConfirmation')
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 const GoogleSheetView = React.lazy(() => import('./pages/GoogleSheetView'));
 const MileageDashboard = React.lazy(() => import('./pages/MileageDashboard'));
+const LabelsDashboard = React.lazy(() => import('./pages/LabelsDashboard'));
+const ClientManager = React.lazy(() => import('./pages/ClientManager'));
 
 // Placeholder Sheet IDs - User should update these in .env or here
 const MORNING_SHEET_ID = import.meta.env.VITE_MORNING_SHEET_ID || "1fWjuO_bGy4cvO0-Ru-u2lbnJcD8ZJFg3ovTaD7kIDzE";
@@ -125,6 +127,16 @@ const App = () => {
                             <Route path="/kilometros" element={
                                 <RoleGuard allowedRoles={['Administrador', 'Usuario']}>
                                     <MileageDashboard />
+                                </RoleGuard>
+                            } />
+                            <Route path="/clientes" element={
+                                <RoleGuard allowedRoles={['Administrador', 'Usuario']}>
+                                    <ClientManager />
+                                </RoleGuard>
+                            } />
+                            <Route path="/etiquetas" element={
+                                <RoleGuard allowedRoles={['Administrador', 'Usuario']}>
+                                    <LabelsDashboard />
                                 </RoleGuard>
                             } />
 

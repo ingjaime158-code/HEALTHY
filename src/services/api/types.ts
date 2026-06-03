@@ -63,6 +63,7 @@ export interface RouteMap {
     morningMapUrl?: string;
     eveningMapUrl?: string;
 }
+export type Destination = RouteMap;
 
 export interface Trip {
     id: string;
@@ -201,11 +202,16 @@ export const getLatestDriverLocations = async (): Promise<{ [driverId: string]: 
         for (const loc of rawData) {
             // Because it's ordered by updated_at DESC, the first time we see a driverId, it's the latest
             if (loc.driver_id && !locations[loc.driver_id]) {
-                locations[loc.driver_id] = {
-                    lat: Number(loc.lat),
-                    lng: Number(loc.lng),
-                    heading: Number(loc.heading) || 0
-                };
+                const lat = Number(loc.lat);
+                const lng = Number(loc.lng);
+                // Defensive check to avoid NaN coordinates from crashing Google Maps
+                if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                    locations[loc.driver_id] = {
+                        lat,
+                        lng,
+                        heading: Number(loc.heading) || 0
+                    };
+                }
             }
         }
     }

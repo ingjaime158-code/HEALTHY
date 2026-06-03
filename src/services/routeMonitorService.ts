@@ -9,6 +9,7 @@
  */
 
 import { supabase } from './supabaseClient';
+import { checkMapQuota, incrementMapQuota } from './mapsQuotaService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface RouteClient {
   repartidor: string;
   bags: number;
   isDelivered?: boolean;
+  estimatedTimeMins?: number; // New: ETA in minutes
+  estimatedTimeClock?: string; // New: ETA clock string or status
 }
 
 export interface DriverRouteInfo {
@@ -35,6 +38,7 @@ export interface DriverRouteInfo {
   clients: RouteClient[];
   colorHex: string | null;
   lastDeliveredAt: string | null;
+  estimatedDistanceKm?: number; // New: Theoretical route distance in km
 }
 
 // ── CSV Parser ───────────────────────────────────────────────────────────────
@@ -147,13 +151,21 @@ export async function fetchMasterSheetClients(
 
     if (!nameVal || !repartidorVal) continue;
 
+    const locationLinkVal = linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '';
+    let coordsVal = coordsIdx >= 0 ? (fields[coordsIdx] || '').trim() : '';
+
+    // Blindaje 1: Si coords está vacío o es en realidad un link, intentamos extraer del link
+    if ((!coordsVal || coordsVal.startsWith('http')) && locationLinkVal) {
+      coordsVal = extractCoordsFromLink(locationLinkVal) || '';
+    }
+
     clients.push({
       order: i,
       name: nameVal,
       phone: phoneIdx >= 0 ? (fields[phoneIdx] || '').trim() : '',
       address: addressIdx >= 0 ? (fields[addressIdx] || '').trim() : '',
-      locationLink: linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '',
-      coords: coordsIdx >= 0 ? (fields[coordsIdx] || '').trim() : '',
+      locationLink: locationLinkVal,
+      coords: coordsVal,
       repartidor: repartidorVal,
       bags: bagsIdx >= 0 ? (parseInt(fields[bagsIdx] || '0', 10) || 0) : 0,
     });
@@ -235,15 +247,264 @@ function findOrderForClient(
 }
 
 /**
- * Downloads a driver's individual route sheet and returns a Map of
- * normalized client name → ORDEN number and BAGS count.
- * Entries with ORDEN = 0 (PUNTO DE INICIO) are excluded.
+ * Extracts coordinates from Google Maps links.
  */
-async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, { orden: number; bags: number }>> {
+function extractCoordsFromLink(url: string): string | null {
+  if (!url) return null;
+  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) return `${atMatch[1]}, ${atMatch[2]}`;
+  const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (qMatch) return `${qMatch[1]}, ${qMatch[2]}`;
+  const llMatch = url.match(/[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (llMatch) return `${llMatch[1]}, ${llMatch[2]}`;
+  const generalMatch = url.match(/(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (generalMatch && (url.includes('google.com/maps') || url.includes('goo.gl/maps'))) {
+    return `${generalMatch[1]}, ${generalMatch[2]}`;
+  }
+  return null;
+}
+
+export function parseCoords(coordsStr: string): { lat: number; lng: number } | null {
+  if (!coordsStr) return null;
+  const parts = coordsStr.split(',').map(p => parseFloat(p.trim()));
+  if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+    return { lat: parts[0], lng: parts[1] };
+  }
+  return null;
+}
+
+function calcHaversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371; // Earth radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function calculateHaversineDistance(points: { lat: number; lng: number }[]): number {
+  let totalDistance = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    totalDistance += calcHaversineDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+  }
+  return parseFloat((totalDistance * 1.25).toFixed(2));
+}
+
+export async function calculateGoogleDrivingDistance(
+  points: { lat: number; lng: number }[]
+): Promise<number> {
+  if (points.length < 2) return 0;
+
+  if (typeof google === 'undefined' || !google.maps) {
+    console.warn('[routeMonitor] Google Maps JavaScript API not loaded. Using Haversine.');
+    return calculateHaversineDistance(points);
+  }
+
+  try {
+    const directionsService = new google.maps.DirectionsService();
+    let totalDistance = 0;
+    const maxSegmentSize = 25;
+
+    for (let i = 0; i < points.length - 1; i += maxSegmentSize - 1) {
+      const segmentPoints = points.slice(i, i + maxSegmentSize);
+      if (segmentPoints.length < 2) break;
+
+      const origin = segmentPoints[0];
+      const destination = segmentPoints[segmentPoints.length - 1];
+      const waypoints = segmentPoints.slice(1, segmentPoints.length - 1).map(p => ({
+        location: p,
+        stopover: true
+      }));
+
+      if (typeof checkMapQuota === 'function' && !checkMapQuota()) {
+        console.warn('[routeMonitor] Maps daily quota exceeded. Using Haversine.');
+        throw new Error('Quota exceeded');
+      }
+
+      if (typeof incrementMapQuota === 'function') {
+        incrementMapQuota();
+      }
+
+      const response: google.maps.DirectionsResult = await new Promise((resolve, reject) => {
+        directionsService.route(
+          {
+            origin,
+            destination,
+            waypoints,
+            travelMode: google.maps.TravelMode.DRIVING
+          },
+          (res, status) => {
+            if (status === google.maps.DirectionsStatus.OK && res) {
+              resolve(res);
+            } else {
+              reject(new Error(`Directions API failed: ${status}`));
+            }
+          }
+        );
+      });
+
+      const route = response.routes[0];
+      if (route && route.legs) {
+        for (const leg of route.legs) {
+          totalDistance += (leg.distance?.value || 0) / 1000;
+        }
+      }
+    }
+
+    return parseFloat(totalDistance.toFixed(2));
+  } catch (err) {
+    console.warn('[routeMonitor] Google Directions failed, using Haversine:', err);
+    return calculateHaversineDistance(points);
+  }
+}
+
+export async function calculateRouteDistance(
+  startCoords: string | null,
+  clients: RouteClient[]
+): Promise<number> {
+  const points: { lat: number; lng: number }[] = [];
+  const start = startCoords ? parseCoords(startCoords) : null;
+  if (start) {
+    points.push(start);
+  } else if (clients.length > 0) {
+    const first = parseCoords(clients[0].coords);
+    if (first) points.push(first);
+  }
+
+  for (const c of clients) {
+    const p = parseCoords(c.coords);
+    if (p) points.push(p);
+  }
+
+  return calculateGoogleDrivingDistance(points);
+}
+
+export async function calculateRouteETAs(
+  startCoords: string | null,
+  clients: RouteClient[]
+): Promise<number[]> {
+  if (clients.length === 0) return [];
+
+  const points: { lat: number; lng: number }[] = [];
+  const start = startCoords ? parseCoords(startCoords) : null;
+  if (start) {
+    points.push(start);
+  } else {
+    const first = parseCoords(clients[0].coords);
+    if (first) points.push(first);
+  }
+
+  for (const client of clients) {
+    const p = parseCoords(client.coords);
+    if (p) {
+      points.push(p);
+    } else if (points.length > 0) {
+      points.push(points[points.length - 1]);
+    }
+  }
+
+  if (points.length < 2) {
+    return new Array(clients.length).fill(0);
+  }
+
+  const legDurationsSec: number[] = new Array(points.length - 1).fill(0);
+  let googleSuccess = false;
+
+  if (typeof google !== 'undefined' && google.maps) {
+    try {
+      const directionsService = new google.maps.DirectionsService();
+      const maxSegmentSize = 25;
+
+      for (let i = 0; i < points.length - 1; i += maxSegmentSize - 1) {
+        const segmentPoints = points.slice(i, i + maxSegmentSize);
+        if (segmentPoints.length < 2) break;
+
+        const origin = segmentPoints[0];
+        const destination = segmentPoints[segmentPoints.length - 1];
+        const waypoints = segmentPoints.slice(1, segmentPoints.length - 1).map(p => ({
+          location: p,
+          stopover: true
+        }));
+
+        if (typeof checkMapQuota === 'function' && checkMapQuota()) {
+          incrementMapQuota();
+
+          const response: google.maps.DirectionsResult = await new Promise((resolve, reject) => {
+            directionsService.route(
+              {
+                origin,
+                destination,
+                waypoints,
+                travelMode: google.maps.TravelMode.DRIVING
+              },
+              (res, status) => {
+                if (status === google.maps.DirectionsStatus.OK && res) {
+                  resolve(res);
+                } else {
+                  reject(new Error(`Directions API failed: ${status}`));
+                }
+              }
+            );
+          });
+
+          const route = response.routes[0];
+          if (route && route.legs) {
+            for (let legIdx = 0; legIdx < route.legs.length; legIdx++) {
+              const globalLegIdx = i + legIdx;
+              if (globalLegIdx < legDurationsSec.length) {
+                legDurationsSec[globalLegIdx] = route.legs[legIdx].duration?.value || 0;
+              }
+            }
+          }
+          googleSuccess = true;
+        }
+      }
+    } catch (err) {
+      console.warn('[routeMonitor] Google ETA service failed, fallback to Haversine duration math:', err);
+    }
+  }
+
+  if (!googleSuccess) {
+    for (let i = 0; i < points.length - 1; i++) {
+      const dist = calcHaversineDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+      const estimatedDist = dist * 1.25;
+      legDurationsSec[i] = (estimatedDist / 30) * 3600;
+    }
+  }
+
+  const etas: number[] = [];
+  let cumulativeTimeMins = 0;
+
+  for (let i = 0; i < clients.length; i++) {
+    const legDrivingTimeMins = legDurationsSec[i] / 60;
+    if (i === 0) {
+      cumulativeTimeMins += legDrivingTimeMins;
+    } else {
+      cumulativeTimeMins += 5 + legDrivingTimeMins;
+    }
+    etas.push(Math.round(cumulativeTimeMins));
+  }
+
+  return etas;
+}
+
+interface DriverOrderData {
+  orderMap: Map<string, { orden: number; bags: number }>;
+  startCoords: string | null;
+}
+
+/**
+ * Downloads a driver's individual route sheet and returns client orders and start coords.
+ */
+export async function fetchDriverOrderMap(sheetUrl: string): Promise<DriverOrderData> {
   const orderMap = new Map<string, { orden: number; bags: number }>();
+  let startCoords: string | null = null;
 
   const sheetId = extractSheetId(sheetUrl);
-  if (!sheetId) return orderMap;
+  if (!sheetId) return { orderMap, startCoords };
 
   const gid = extractGid(sheetUrl);
   const csvUrl = getSheetCsvUrl(sheetId, gid);
@@ -252,23 +513,24 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, { orde
     const response = await fetch(csvUrl);
     if (!response.ok) {
       console.warn(`[routeMonitor] Could not fetch driver sheet (HTTP ${response.status}): ${sheetUrl}`);
-      return orderMap;
+      return { orderMap, startCoords };
     }
 
     const text = await response.text();
     const parsedRows = parseCsvContent(text);
-    if (parsedRows.length < 2) return orderMap;
+    if (parsedRows.length < 2) return { orderMap, startCoords };
 
     const header = parsedRows[0].map(h => h.toUpperCase());
 
-    // Look specifically for ORDEN column
     const ordenIdx = header.findIndex(h => h.includes('ORDEN'));
     const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
     const bagsIdx = header.findIndex(h => h.includes('BOLSA'));
+    const linkIdx = header.findIndex(h => h.includes('LINK'));
+    const coordsIdx = header.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION');
 
     if (ordenIdx === -1 || nombreIdx === -1) {
       console.warn('[routeMonitor] Driver sheet missing ORDEN or NOMBRE column. Header:', header);
-      return orderMap;
+      return { orderMap, startCoords };
     }
 
     for (let i = 1; i < parsedRows.length; i++) {
@@ -277,8 +539,19 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, { orde
       const nombre = normalizeName(fields[nombreIdx] || '');
       const bags = bagsIdx >= 0 ? (parseInt(fields[bagsIdx] || '0', 10) || 0) : 0;
 
-      // Skip ORDEN 0 (PUNTO DE INICIO) and invalid entries
-      if (isNaN(orden) || orden === 0 || !nombre) continue;
+      if (orden === 0) {
+        let coords = coordsIdx >= 0 ? (fields[coordsIdx] || '').trim() : '';
+        const link = linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '';
+        if (!coords && link) {
+          coords = extractCoordsFromLink(link) || '';
+        }
+        if (coords) {
+          startCoords = coords;
+        }
+        continue;
+      }
+
+      if (isNaN(orden) || !nombre) continue;
 
       orderMap.set(nombre, { orden, bags });
     }
@@ -288,7 +561,7 @@ async function fetchDriverOrderMap(sheetUrl: string): Promise<Map<string, { orde
     console.warn('[routeMonitor] Error fetching driver sheet:', err);
   }
 
-  return orderMap;
+  return { orderMap, startCoords };
 }
 
 
@@ -336,7 +609,43 @@ export async function buildDriverProgress(
   // 1. Fetch master sheet
   const allClients = await fetchMasterSheetClients(sheetId, gid);
 
-  // 2. Fetch today's delivery logs
+  // 2. Blindaje 2: Recuperar coordenadas oficiales de la base de datos Supabase
+  try {
+    const { data: dbBusinesses } = await supabase
+      .from('businesses')
+      .select('name, lat, lng, location_link');
+
+    if (dbBusinesses && dbBusinesses.length > 0) {
+      const businessCoordsMap = new Map<string, { lat: number; lng: number }>();
+      for (const b of dbBusinesses) {
+        if (b.name && b.lat && b.lng) {
+          businessCoordsMap.set(normalizeName(b.name), { lat: Number(b.lat), lng: Number(b.lng) });
+        }
+      }
+
+      for (const client of allClients) {
+        const parsed = parseCoords(client.coords);
+        if (!parsed) {
+          const normalizedClientName = normalizeName(client.name);
+          const dbCoords = businessCoordsMap.get(normalizedClientName);
+          if (dbCoords) {
+            client.coords = `${dbCoords.lat}, ${dbCoords.lng}`;
+            console.log(`[routeMonitor] Fallback coords used for "${client.name}" from Supabase: ${client.coords}`);
+          } else if (client.locationLink) {
+            const extracted = extractCoordsFromLink(client.locationLink);
+            if (extracted) {
+              client.coords = extracted;
+              console.log(`[routeMonitor] Extracted coords from link for "${client.name}": ${extracted}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[routeMonitor] Failed to fetch fallback business coordinates from Supabase:', err);
+  }
+
+  // 3. Fetch today's delivery logs
   const logs = await fetchTodayDeliveryLogs(routeType);
 
   // 3. Group clients by REPARTIDOR
@@ -346,6 +655,8 @@ export async function buildDriverProgress(
     if (!driverMap.has(key)) driverMap.set(key, []);
     driverMap.get(key)!.push(client);
   }
+
+  const driverStartCoordsMap = new Map<string, string | null>();
 
   // 4. For each driver, fetch their individual sheet to get the correct ORDEN
   //    and apply it to the client list, skipping ORDEN 0 (PUNTO DE INICIO)
@@ -371,8 +682,9 @@ export async function buildDriverProgress(
       : '';
 
     if (driverSheetUrl) {
-      // Fetch the driver's individual ORDEN mapping
-      const orderMap = await fetchDriverOrderMap(driverSheetUrl);
+      // Fetch the driver's individual ORDEN mapping and start coordinates
+      const { orderMap, startCoords } = await fetchDriverOrderMap(driverSheetUrl);
+      driverStartCoordsMap.set(driverName, startCoords);
 
       if (orderMap.size > 0) {
         let matchedCount = 0;
@@ -395,6 +707,7 @@ export async function buildDriverProgress(
         console.warn(`[routeMonitor] ⚠ ${driverName}: driver sheet returned empty order map`);
       }
     } else {
+      driverStartCoordsMap.set(driverName, null);
       console.warn(`[routeMonitor] ⚠ ${driverName}: no individual sheet URL found (dbDriver: ${dbDriver?.name || 'NOT FOUND'})`);
     }
 
@@ -459,6 +772,57 @@ export async function buildDriverProgress(
     const lastLog = driverLogs
       .filter(l => l.delivered_at)
       .sort((a, b) => new Date(b.delivered_at).getTime() - new Date(a.delivered_at).getTime())[0];
+
+    // Compute ETAs sequentially for the sorted clients
+    const startCoords = driverStartCoordsMap.get(driverName) || null;
+    const etas = await calculateRouteETAs(startCoords, clients);
+    for (let i = 0; i < clients.length; i++) {
+      clients[i].estimatedTimeMins = etas[i];
+    }
+
+    // Proyección inteligente de horas aproximadas en reloj basadas en la última entrega
+    const completedLogs = driverLogs
+      .filter(l => l.delivered_at)
+      .sort((a, b) => new Date(b.delivered_at).getTime() - new Date(a.delivered_at).getTime());
+
+    const latestLog = completedLogs[0];
+    let anchorClient = null;
+    let anchorTimeMins = 0;
+    let anchorTimeReal: Date | null = null;
+
+    if (latestLog) {
+      anchorClient = clients.find(c => normalizeName(c.name) === normalizeName(latestLog.client_name || ''));
+      if (anchorClient && anchorClient.estimatedTimeMins !== undefined) {
+        anchorTimeMins = anchorClient.estimatedTimeMins;
+        anchorTimeReal = new Date(latestLog.delivered_at);
+      }
+    }
+
+    for (const client of clients) {
+      if (client.isDelivered) {
+        const log = driverLogs.find(l => normalizeName(l.client_name || '') === normalizeName(client.name));
+        if (log && log.delivered_at) {
+          const delTime = new Date(log.delivered_at);
+          const hours = delTime.getHours();
+          const minutes = delTime.getMinutes();
+          const ampm = hours >= 12 ? 'PM' : 'AM';
+          const formattedHours = hours % 12 || 12;
+          const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+          client.estimatedTimeClock = `Entregado: ${formattedHours}:${formattedMinutes} ${ampm}`;
+        }
+      } else if (anchorTimeReal && client.estimatedTimeMins !== undefined) {
+        const deltaMins = Math.max(5, client.estimatedTimeMins - anchorTimeMins);
+        const estimatedTime = new Date(anchorTimeReal.getTime() + deltaMins * 60 * 1000);
+        
+        const hours = estimatedTime.getHours();
+        const minutes = estimatedTime.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const formattedHours = hours % 12 || 12;
+        const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+        
+        client.estimatedTimeClock = `${formattedHours}:${formattedMinutes} ${ampm}`;
+      }
+    }
 
     result.push({
       driverName,

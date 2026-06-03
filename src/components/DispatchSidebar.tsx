@@ -159,6 +159,18 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                     <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
                                                     {client.address || 'Ubicación de entrega'}
                                                 </p>
+                                                {!client.isDelivered && (client.estimatedTimeClock || client.estimatedTimeMins !== undefined) && (
+                                                    <div className="text-[10px] font-extrabold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1 w-fit mt-1 shadow-sm shadow-amber-500/5">
+                                                        <span className="material-symbols-outlined text-[11px] font-black">schedule</span>
+                                                        Llegada est.: {client.estimatedTimeClock ? client.estimatedTimeClock : `${client.estimatedTimeMins} min`}
+                                                    </div>
+                                                )}
+                                                {client.isDelivered && client.estimatedTimeClock && (
+                                                    <div className="text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1 w-fit mt-1 shadow-sm shadow-emerald-500/5">
+                                                        <span className="material-symbols-outlined text-[11px] font-black">task_alt</span>
+                                                        {client.estimatedTimeClock}
+                                                    </div>
+                                                )}
                                             </div>
                                             {client.isDelivered && (
                                                 <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>

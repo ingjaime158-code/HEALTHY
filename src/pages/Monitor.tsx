@@ -410,10 +410,6 @@ const FleetMonitor = () => {
                 },
                 (payload) => {
                     if (payload.eventType === 'INSERT') {
-                        const newTrip = payload.new;
-                        setCreatedTripId(newTrip.id);
-                        setLastCreatedTrip({ clientName: newTrip.client_name, clientPhone: newTrip.client_phone, cost: newTrip.cost });
-                        setShowToast(true);
                         getActiveTrips().then(setActiveTrips);
                     } else if (payload.eventType === 'UPDATE') {
                         if (payload.new?.status !== payload.old?.status || payload.new?.cost !== payload.old?.cost) {
@@ -455,6 +451,7 @@ const FleetMonitor = () => {
         });
         return merged;
     }, [initialDriverPositions, realtimePositions]);
+
 
     // ── Polling fallback: refresh GPS positions every 5s from DB ──────────
     // This ensures positions update even if Supabase Realtime isn't enabled
@@ -808,7 +805,30 @@ const FleetMonitor = () => {
         }
     };
 
-
+    const filteredDriversForStatus = useMemo(() => {
+        if (!selectedRoute) return drivers;
+        
+        // Obtener los nombres normalizados de los choferes que tienen entregas reales hoy en el Excel principal de la ruta activa
+        const assignedDriverNames = new Set<string>(
+            routeDrivers.map(rd => rd.driverName.toUpperCase().trim())
+        );
+        
+        return drivers.filter(ds => {
+            const driverNameUpper = ds.name.toUpperCase().trim();
+            
+            // Buscar coincidencia exacta o coincidencia parcial de nombre
+            let isAssigned = assignedDriverNames.has(driverNameUpper);
+            if (!isAssigned) {
+                for (const name of assignedDriverNames) {
+                    if (name.includes(driverNameUpper) || driverNameUpper.includes(name)) {
+                        isAssigned = true;
+                        break;
+                    }
+                }
+            }
+            return isAssigned;
+        });
+    }, [drivers, selectedRoute, routeDrivers]);
 
     return (
         <div className="relative flex-1 h-full w-full bg-[#121118] overflow-hidden">
@@ -819,7 +839,7 @@ const FleetMonitor = () => {
                             driverPositions={driverPositions}
                             driverNames={driverNames}
                             driverColors={driverColors}
-                            businesses={businesses}
+                            businesses={[]}
                             units={units}
                             showBusinesses={showBusinesses}
                             showUnits={showUnits}
@@ -870,9 +890,11 @@ const FleetMonitor = () => {
                     </button>
                     {showDriverStatus && (
                         <div className="absolute top-full left-0 mt-2 w-72 bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-2 z-[800]">
-                            <h3 className="text-white text-xs font-bold uppercase tracking-widest px-2 py-2 border-b border-white/10 mb-2">Estado de Repartidores</h3>
+                            <h3 className="text-white text-xs font-bold uppercase tracking-widest px-2 py-2 border-b border-white/10 mb-2">
+                                Repartidores {selectedRoute === 'morning' ? '☀️ Matutina' : selectedRoute === 'evening' ? '🌙 Vespertina' : '(Todos)'}
+                            </h3>
                             <div className="max-h-64 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                                {drivers.map(ds => {
+                                {filteredDriversForStatus.map(ds => {
                                     const assignment = activeTrips.find(t => t.driverId === ds.id && t.status === 'En Progreso');
                                     return (
                                         <div key={ds.id} className="flex justify-between items-center py-2 px-2 hover:bg-white/5 rounded-lg border-b border-white/5 last:border-0">

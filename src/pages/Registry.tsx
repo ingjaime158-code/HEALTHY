@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
     getBusinesses, addBusiness, updateBusiness, deleteBusiness,
     getUnits, addUnit, updateUnit, deleteUnit,
-    getDrivers, addDriver, updateDriver, deleteDriver, getUnitName,
+    getDrivers, addDriver, updateDriver, deleteDriver,
     getAdministrators, addAdministrator, updateAdministrator, deleteAdministrator,
     getDestinations as getRouteMaps, addDestination as addRouteMap, updateDestination as updateRouteMap, deleteDestination as deleteRouteMap,
     Business, FleetUnit, Driver, Administrator, RouteMap, initializeData
@@ -352,7 +352,7 @@ const Registry = () => {
                 if (!adminForm.email) return alert('Email es requerido para el acceso del comerciante.');
 
                 // OAuth only - no password passed
-                const authSuccess = await addAllowedUser(adminForm.email, undefined, 'Comerciante', adminForm.businessId);
+                const authSuccess = await addAllowedUser(adminForm.email, undefined, 'Comerciante' as any, adminForm.businessId);
                 if (!authSuccess) return alert('Error al crear el usuario de acceso. El email podría estar en uso.');
             }
 
@@ -377,7 +377,7 @@ const Registry = () => {
         if (type === 'unit') res = await deleteUnit(id);
         if (type === 'driver') res = await deleteDriver(id);
         if (type === 'admin') res = await deleteAdministrator(id);
-        if (type === 'map') res = await deleteRouteMap(id);
+        if (type === 'destination') res = await deleteRouteMap(id);
 
         if (res.success) {
             await refreshData();
@@ -423,22 +423,6 @@ const Registry = () => {
         }));
     };
 
-
-    const handleDestinationSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            if (editingId) {
-                await updateDestination({ id: editingId, ...destinationForm });
-            } else {
-                await addDestination(destinationForm);
-            }
-            handleCloseModalInternal();
-            await refreshData();
-        } catch (error) {
-            console.error('Error saving destination:', error);
-            alert('Error al guardar el destino/punto de interés.');
-        }
-    };
 
     const handleMapSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

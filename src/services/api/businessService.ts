@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { adminSelect } from '../supabaseAdmin';
+import { adminSelect, adminInsert, adminUpdate } from '../supabaseAdmin';
 import { Business } from './types';
 
 // --- Businesses ---
@@ -47,13 +47,11 @@ export const addBusiness = async (business: Omit<Business, 'id'>): Promise<Busin
         route_type: business.routeType || null
     };
 
-
-    const { data, error } = await supabase.from('businesses').insert(payload).select().single();
-
-    if (error) {
-        console.error('Error in addBusiness:', error);
-        throw error;
+    const insertedData = await adminInsert('businesses', payload);
+    if (!insertedData || insertedData.length === 0) {
+        throw new Error('Error in addBusiness: Insert failed or returned empty data');
     }
+    const data = insertedData[0];
 
     return {
         id: data.id,
@@ -76,13 +74,14 @@ export const addBusiness = async (business: Omit<Business, 'id'>): Promise<Busin
 };
 
 export const updateBusiness = async (business: Business): Promise<boolean> => {
-    const { error } = await supabase.from('businesses').update({
+    return await adminUpdate('businesses', business.id, {
         name: business.name,
         type: business.type,
         location: business.location,
         lat: business.lat,
         lng: business.lng,
         phone: business.phone,
+        email: business.email,
         rfc: business.rfc,
         parent_id: business.parentId || null,
         base_rate_0_6km: business.baseRate0to6 || null,
@@ -91,14 +90,7 @@ export const updateBusiness = async (business: Business): Promise<boolean> => {
         wait_rate_per_min: business.waitRatePerMin || null,
         location_link: business.locationLink || null,
         route_type: business.routeType || null
-    }).eq('id', business.id);
-
-
-    if (error) {
-        console.error('Error updating business:', error);
-        return false;
-    }
-    return true;
+    });
 };
 
 export const deleteBusiness = async (id: string): Promise<{ success: boolean, message?: string }> => {

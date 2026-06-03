@@ -162,12 +162,17 @@ export function useRealtimeTracking(
                 (payload) => {
                     const loc = (payload.new || payload.old) as any;
                     if (loc?.driver_id) {
-                        handleNewPosition(
-                            loc.driver_id,
-                            Number(loc.lat),
-                            Number(loc.lng),
-                            Number(loc.heading) || 0
-                        );
+                        const lat = Number(loc.lat);
+                        const lng = Number(loc.lng);
+                        // Defensive check to avoid passing NaN coordinates
+                        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                            handleNewPosition(
+                                loc.driver_id,
+                                lat,
+                                lng,
+                                Number(loc.heading) || 0
+                            );
+                        }
                     }
                 }
             )
@@ -192,12 +197,17 @@ export function useRealtimeTracking(
                 .on('broadcast', { event: 'location' }, (msg) => {
                     const p = msg.payload;
                     if (p?.driverId && p?.lat && p?.lng) {
-                        handleNewPosition(
-                            p.driverId,
-                            Number(p.lat),
-                            Number(p.lng),
-                            Number(p.heading) || 0
-                        );
+                        const lat = Number(p.lat);
+                        const lng = Number(p.lng);
+                        // Defensive check to avoid passing NaN coordinates
+                        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                            handleNewPosition(
+                                p.driverId,
+                                lat,
+                                lng,
+                                Number(p.heading) || 0
+                            );
+                        }
                     }
                 })
                 .subscribe();
