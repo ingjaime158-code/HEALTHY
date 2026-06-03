@@ -5,11 +5,14 @@ import { getBusinesses, Business, getDrivers, Driver } from '../services/dataSer
 // All available sidebar views for permission assignment
 const AVAILABLE_VIEWS = [
     { key: '/monitor', label: 'Monitor en Vivo', icon: 'cell_tower', group: 'Monitor' },
+    { key: '/clientes', label: 'Gestión de Clientes', icon: 'group', group: 'Logística' },
+    { key: '/etiquetas', label: 'Etiquetas de Comida', icon: 'label', group: 'Logística' },
     { key: '/ruta-matutina', label: 'Ruta Matutina', icon: 'wb_twilight', group: 'Logística' },
     { key: '/ruta-vespertina', label: 'Ruta Vespertina', icon: 'wb_sunny', group: 'Logística' },
     { key: '/kilometros', label: 'Kilómetros', icon: 'speed', group: 'Logística' },
     { key: '/registry/choferes', label: 'Repartidores', icon: 'id_card', group: 'Administración' },
-    { key: '/user-access', label: 'Control de Acceso', icon: 'group', group: 'Administración' },
+    { key: '/registry/mapas', label: 'Mapas', icon: 'map', group: 'Administración' },
+    { key: '/access', label: 'Control de Acceso', icon: 'admin_panel_settings', group: 'Administración' },
 ];
 
 const UserAccess = () => {
