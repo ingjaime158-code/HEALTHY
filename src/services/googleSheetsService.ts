@@ -333,8 +333,16 @@ function parseSheetClientsCsv(csvText: string, isActive: boolean): RawSheetClien
 
         const phone = phoneIdx >= 0 ? (fields[phoneIdx] || '').trim() : '';
         const address = addressIdx >= 0 ? (fields[addressIdx] || '').trim() : '';
-        const locationLink = linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '';
+        const rawLink = linkIdx >= 0 ? (fields[linkIdx] || '').trim() : '';
         const coords = coordsIdx >= 0 ? (fields[coordsIdx] || '').trim() : '';
+
+        let locationLink = rawLink;
+        if (!locationLink.startsWith('http') && coords) {
+            const parts = coords.split(',').map(p => p.trim());
+            if (parts.length === 2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]))) {
+                locationLink = `https://www.google.com/maps?q=${parts[0]},${parts[1]}`;
+            }
+        }
         const driver = driverIdx >= 0 ? (fields[driverIdx] || '').trim().toUpperCase() : 'SIN ASIGNAR';
         const planType = planIdx >= 0 ? (fields[planIdx] || '').trim().toUpperCase() : '';
         const tiempos = tiemposIdx >= 0 ? (parseInt(fields[tiemposIdx] || '1', 10) || 1) : 1;

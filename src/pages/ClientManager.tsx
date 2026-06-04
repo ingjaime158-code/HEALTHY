@@ -377,7 +377,8 @@ const ClientManager: React.FC = () => {
           const statusChanged = dbConfig.isActive !== sheetClient.isActive;
           const phoneChanged = (matchedDbClient.phone || '') !== sheetClient.phone;
           const addressChanged = (matchedDbClient.location || '') !== sheetClient.address;
-          const linkChanged = (matchedDbClient.locationLink || '') !== sheetClient.locationLink;
+          const isSheetLinkValid = sheetClient.locationLink && sheetClient.locationLink.startsWith('http');
+          const linkChanged = isSheetLinkValid && (matchedDbClient.locationLink || '') !== sheetClient.locationLink;
           const coordsChanged = Math.abs(matchedDbClient.lat - lat) > 0.0001 || Math.abs(matchedDbClient.lng - lng) > 0.0001;
           const driverChanged = dbConfig.driver !== finalDriver;
           const planChanged = dbConfig.planType !== sheetClient.planType;
@@ -412,7 +413,7 @@ const ClientManager: React.FC = () => {
               ...matchedDbClient,
               phone: sheetClient.phone || matchedDbClient.phone,
               location: sheetClient.address || matchedDbClient.location,
-              locationLink: sheetClient.locationLink || matchedDbClient.locationLink,
+              locationLink: isSheetLinkValid ? sheetClient.locationLink : matchedDbClient.locationLink,
               lat: lat || matchedDbClient.lat,
               lng: lng || matchedDbClient.lng,
               email: updatedEmail
