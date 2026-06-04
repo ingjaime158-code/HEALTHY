@@ -90,7 +90,7 @@ const fetchDriverIndividualRoute = async (sheetUrl: string): Promise<{ startCoor
         const ordenIdx = header.findIndex(h => h.includes('ORDEN'));
         const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
         const linkIdx = header.findIndex(h => h.includes('LINK'));
-        const coordsIdx = header.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION');
+        const coordsIdx = header.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION' || h === 'COORDENADAS');
 
         if (ordenIdx === -1 || nombreIdx === -1) return { startCoords, stops };
 

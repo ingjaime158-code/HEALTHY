@@ -526,7 +526,7 @@ export async function fetchDriverOrderMap(sheetUrl: string): Promise<DriverOrder
     const nombreIdx = header.findIndex(h => h.includes('NOMBRE'));
     const bagsIdx = header.findIndex(h => h.includes('BOLSA'));
     const linkIdx = header.findIndex(h => h.includes('LINK'));
-    const coordsIdx = header.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION');
+    const coordsIdx = header.findIndex(h => h === 'UBICACIÓN' || h === 'UBICACION' || h === 'COORDENADAS');
 
     if (ordenIdx === -1 || nombreIdx === -1) {
       console.warn('[routeMonitor] Driver sheet missing ORDEN or NOMBRE column. Header:', header);
