@@ -29,8 +29,8 @@ export const fetchMileageData = async (monthName: string): Promise<DaySummary[]>
     console.log(`[MileageService] Solicitando mes: ${monthName}, GID: ${gid || 'NO ENCONTRADO'}`);
 
     if (!gid) {
-        console.error(`[MileageService] Error: No hay un GID configurado para el mes "${monthName}". Revisa el archivo mileageService.ts`);
-        throw new Error(`Mes no encontrado: ${monthName}`);
+        console.warn(`[MileageService] Warning: No hay un GID configurado para el mes "${monthName}". Retornando vacío.`);
+        return [];
     }
 
     // Añadimos un timestamp para evitar que el navegador cachee datos de meses anteriores

@@ -15,7 +15,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo'];
+const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 const MORNING_SHEET_ID = "1fWjuO_bGy4cvO0-Ru-u2lbnJcD8ZJFg3ovTaD7kIDzE";
 const EVENING_SHEET_ID = "1y7V-6nwmsJv_bY38PzjFhIFWaUPu8EW4IvQD23T008U";
@@ -143,8 +143,14 @@ const parseDateString = (dateStr: string) => {
     return new Date(2000 + y, m - 1, d, parts[0] === 'RV' ? 12 : 8);
 };
 
+const getInitialMonth = () => {
+    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const currentMonthIdx = new Date().getMonth();
+    return months[currentMonthIdx] || 'Enero';
+};
+
 const MileageDashboard: React.FC = () => {
-    const [selectedMonth, setSelectedMonth] = useState('Mayo');
+    const [selectedMonth, setSelectedMonth] = useState(getInitialMonth());
     const [data, setData] = useState<DaySummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
