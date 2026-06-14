@@ -315,6 +315,7 @@ const ClientManager: React.FC = () => {
     
     let destination;
     let waypoints: google.maps.DirectionsWaypoint[] = [];
+    let orderedStops = [...validStops];
 
     if (isClosedRoute) {
       // Return to start: Destination is origin
@@ -324,10 +325,29 @@ const ClientManager: React.FC = () => {
         stopover: true
       }));
     } else {
-      // Open route: Last stop is destination, others are waypoints
-      const lastStop = validStops[validStops.length - 1];
+      // Open route: Use local TSP solver first to identify the best logical ending point of the route.
+      // This prevents the "fixed destination" issue where Google Maps is forced to end at whatever stop
+      // happens to be last in the database sequence.
+      const localTspResult = solveTSP(
+        validStops.map(s => ({
+          id: s.id,
+          name: s.name,
+          lat: s.lat,
+          lng: s.lng
+        })),
+        selectedOriginCoords.lat,
+        selectedOriginCoords.lng,
+        false
+      );
+
+      // Reorder validStops based on local TSP sequence
+      orderedStops = localTspResult.route
+        .map(r => validStops.find(s => s.id === r.id))
+        .filter((s): s is any => !!s);
+
+      const lastStop = orderedStops[orderedStops.length - 1];
       destination = new google.maps.LatLng(lastStop.lat, lastStop.lng);
-      waypoints = validStops.slice(0, -1).map(s => ({
+      waypoints = orderedStops.slice(0, -1).map(s => ({
         location: new google.maps.LatLng(s.lat, s.lng),
         stopover: true
       }));
@@ -351,9 +371,9 @@ const ClientManager: React.FC = () => {
           optimizedValid = order.map(idx => validStops[idx]);
         } else {
           // Map optimized order of waypoints, and append the destination at the end
-          const waypointsStops = validStops.slice(0, -1);
+          const waypointsStops = orderedStops.slice(0, -1);
           optimizedValid = order.map(idx => waypointsStops[idx]);
-          optimizedValid.push(validStops[validStops.length - 1]);
+          optimizedValid.push(orderedStops[orderedStops.length - 1]);
         }
         
         const newStops = [...optimizedValid, ...invalidStops];
