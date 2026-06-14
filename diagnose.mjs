@@ -27,8 +27,8 @@ async function diagnose() {
   });
 
   try {
-    console.log("Navigating directly to monitor page...");
-    await page.goto('http://localhost:5173/#/monitor', { waitUntil: 'networkidle', timeout: 15000 });
+    console.log("Navigating directly to clientes page...");
+    await page.goto('http://localhost:5173/#/clientes', { waitUntil: 'networkidle', timeout: 15000 });
     
     console.log("Page loaded. Waiting 5 seconds to capture any runtime crashes...");
     await page.waitForTimeout(5000);

@@ -77,6 +77,51 @@ const ClientManager: React.FC = () => {
     setClients: setDbClients
   } = useHealthyDreamsStore();
 
+  // Processed list of clients to avoid duplicate JSON parsing
+  const parsedClients = useMemo(() => {
+    return dbClients.map(biz => {
+      let planType = '';
+      let plansCount = 1;
+      let exclusions = 'Ninguna';
+      let siglas = 'C';
+      let driver = 'SIN ASIGNAR';
+      let isActive = true;
+      let tiempos = 1;
+
+      let routeOrder = 9999;
+
+      if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(biz.email);
+          planType = parsed.planType !== undefined ? parsed.planType : '';
+          plansCount = parseInt(parsed.plansCount) || 1;
+          exclusions = parsed.exclusions || 'Ninguna';
+          siglas = parsed.siglas || 'C';
+          driver = parsed.driver || 'SIN ASIGNAR';
+          isActive = parsed.isActive !== false;
+          routeOrder = parsed.routeOrder !== undefined ? Number(parsed.routeOrder) : 9999;
+          tiempos = parsed.tiempos || 0;
+          if (tiempos === 0 && parsed.plans && Array.isArray(parsed.plans)) {
+            tiempos = parsed.plans.reduce((sum: number, p: any) => sum + (p.tiempos || 1), 0);
+          }
+          if (tiempos === 0) tiempos = 1;
+        } catch (e) {}
+      }
+
+      return {
+        ...biz,
+        planType,
+        plansCount,
+        exclusions,
+        siglas,
+        driver,
+        isActive,
+        tiempos,
+        routeOrder
+      };
+    });
+  }, [dbClients]);
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Sorting and Filtering States
@@ -957,51 +1002,6 @@ const ClientManager: React.FC = () => {
       setIsDistributing(false);
     }
   };
-
-  // Processed list of clients to avoid duplicate JSON parsing
-  const parsedClients = useMemo(() => {
-    return dbClients.map(biz => {
-      let planType = '';
-      let plansCount = 1;
-      let exclusions = 'Ninguna';
-      let siglas = 'C';
-      let driver = 'SIN ASIGNAR';
-      let isActive = true;
-      let tiempos = 1;
-
-      let routeOrder = 9999;
-
-      if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
-        try {
-          const parsed = JSON.parse(biz.email);
-          planType = parsed.planType !== undefined ? parsed.planType : '';
-          plansCount = parseInt(parsed.plansCount) || 1;
-          exclusions = parsed.exclusions || 'Ninguna';
-          siglas = parsed.siglas || 'C';
-          driver = parsed.driver || 'SIN ASIGNAR';
-          isActive = parsed.isActive !== false;
-          routeOrder = parsed.routeOrder !== undefined ? Number(parsed.routeOrder) : 9999;
-          tiempos = parsed.tiempos || 0;
-          if (tiempos === 0 && parsed.plans && Array.isArray(parsed.plans)) {
-            tiempos = parsed.plans.reduce((sum: number, p: any) => sum + (p.tiempos || 1), 0);
-          }
-          if (tiempos === 0) tiempos = 1;
-        } catch (e) {}
-      }
-
-      return {
-        ...biz,
-        planType,
-        plansCount,
-        exclusions,
-        siglas,
-        driver,
-        isActive,
-        tiempos,
-        routeOrder
-      };
-    });
-  }, [dbClients]);
 
   // Dynamic extraction of unique drivers and plan types
   const uniqueDrivers = useMemo(() => {
