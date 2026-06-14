@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { supabase } from './supabaseClient';
 
 export interface MileageRecord {
     date: string;
@@ -22,26 +23,156 @@ const GIDS: { [key: string]: string } = {
     'Mayo': '1530282506'
 };
 
-export const fetchMileageData = async (monthName: string): Promise<DaySummary[]> => {
-    const gid = GIDS[monthName];
-    
-    // LOG DE DEPURACIÓN: Esto aparecerá en la consola del navegador (F12)
-    console.log(`[MileageService] Solicitando mes: ${monthName}, GID: ${gid || 'NO ENCONTRADO'}`);
+const MONTH_MAP: { [key: string]: string } = {
+    'Enero': '-01-',
+    'Febrero': '-02-',
+    'Marzo': '-03-',
+    'Abril': '-04-',
+    'Mayo': '-05-',
+    'Junio': '-06-',
+    'Julio': '-07-',
+    'Agosto': '-08-',
+    'Septiembre': '-09-',
+    'Octubre': '-10-',
+    'Noviembre': '-11-',
+    'Diciembre': '-12-'
+};
 
-    if (!gid) {
-        console.warn(`[MileageService] Warning: No hay un GID configurado para el mes "${monthName}". Retornando vacío.`);
-        return [];
+const parseDateString = (dateStr: string) => {
+    const parts = dateStr.split(' ');
+    if (parts.length < 2) return new Date(0);
+    const dateParts = parts[1].split('-');
+    if (dateParts.length < 3) return new Date(0);
+    const d = parseInt(dateParts[0], 10);
+    const m = parseInt(dateParts[1], 10);
+    const y = parseInt(dateParts[2], 10);
+    return new Date(2000 + y, m - 1, d, parts[0] === 'RV' ? 12 : 8);
+};
+
+export const saveMileageRecords = async (records: MileageRecord[]): Promise<void> => {
+    if (!records || records.length === 0) return;
+
+    console.log(`[MileageService] Guardando ${records.length} registros en Supabase...`);
+
+    const dbRecords = records.map(r => ({
+        date: r.date,
+        driver: r.driver,
+        total_km: r.totalKm,
+        route_km: r.routeKm,
+        customers: r.customers
+    }));
+
+    const { error } = await supabase
+        .from('mileage_records')
+        .upsert(dbRecords, { onConflict: 'date,driver' });
+
+    if (error) {
+        console.error('[MileageService] Error guardando kilometraje en Supabase:', error);
+        throw error;
     }
 
-    // Añadimos un timestamp para evitar que el navegador cachee datos de meses anteriores
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}&tcb=${Date.now()}`;
-    
-    console.log(`[MileageService] URL Final: ${url}`);
+    console.log('[MileageService] Registros guardados exitosamente.');
+};
 
-    const response = await axios.get(url);
-    const csvData = response.data;
+export const fetchMileageData = async (monthName: string): Promise<DaySummary[]> => {
+    console.log(`[MileageService] Cargando datos para el mes: ${monthName}`);
 
-    return parseMileageCsv(csvData);
+    // 1. Intentar cargar datos desde Google Sheets (si el mes tiene un GID)
+    const gid = GIDS[monthName];
+    let sheetSummaries: DaySummary[] = [];
+
+    if (gid) {
+        try {
+            const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}&tcb=${Date.now()}`;
+            console.log(`[MileageService] Consultando Google Sheets: ${url}`);
+            const response = await axios.get(url);
+            sheetSummaries = parseMileageCsv(response.data);
+            console.log(`[MileageService] Cargados ${sheetSummaries.length} días desde Google Sheets.`);
+        } catch (err) {
+            console.error(`[MileageService] Error al leer Google Sheets para ${monthName}:`, err);
+        }
+    } else {
+        console.log(`[MileageService] No hay GID configurado para ${monthName}. Se omitirá Google Sheets.`);
+    }
+
+    // 2. Intentar cargar datos desde Supabase
+    const monthPattern = MONTH_MAP[monthName];
+    let dbSummaries: DaySummary[] = [];
+
+    if (monthPattern) {
+        try {
+            console.log(`[MileageService] Consultando Supabase con patrón de fecha: %${monthPattern}%`);
+            const { data: dbData, error: dbError } = await supabase
+                .from('mileage_records')
+                .select('*')
+                .like('date', `%${monthPattern}%`);
+
+            if (dbError) {
+                console.error('[MileageService] Error consultando Supabase:', dbError.message);
+            } else if (dbData && dbData.length > 0) {
+                console.log(`[MileageService] Cargados ${dbData.length} registros desde Supabase.`);
+                
+                // Agrupar los registros por fecha
+                const groups: { [key: string]: MileageRecord[] } = {};
+                dbData.forEach(row => {
+                    if (!groups[row.date]) {
+                        groups[row.date] = [];
+                    }
+                    groups[row.date].push({
+                        date: row.date,
+                        driver: row.driver,
+                        totalKm: Number(row.total_km),
+                        routeKm: Number(row.route_km),
+                        customers: Number(row.customers)
+                    });
+                });
+
+                dbSummaries = Object.keys(groups).map(date => ({
+                    date,
+                    records: groups[date]
+                }));
+            } else {
+                console.log('[MileageService] No se encontraron registros en Supabase para este mes.');
+            }
+        } catch (err) {
+            console.error('[MileageService] Error inesperado consultando Supabase:', err);
+        }
+    }
+
+    // 3. Mezclar ambas fuentes priorizando Supabase en caso de duplicidad (date, driver)
+    const mergedMap: { [date: string]: { [driver: string]: MileageRecord } } = {};
+
+    // Primero agregamos los registros de Google Sheets
+    sheetSummaries.forEach(day => {
+        if (!mergedMap[day.date]) {
+            mergedMap[day.date] = {};
+        }
+        day.records.forEach(rec => {
+            mergedMap[day.date][rec.driver] = rec;
+        });
+    });
+
+    // Luego sobrescribimos/agregamos con Supabase
+    dbSummaries.forEach(day => {
+        if (!mergedMap[day.date]) {
+            mergedMap[day.date] = {};
+        }
+        day.records.forEach(rec => {
+            mergedMap[day.date][rec.driver] = rec;
+        });
+    });
+
+    // Convertir de nuevo al formato DaySummary[]
+    const finalSummaries: DaySummary[] = Object.keys(mergedMap).map(date => {
+        const records = Object.values(mergedMap[date]);
+        return { date, records };
+    });
+
+    // Ordenar cronológicamente usando parseDateString
+    finalSummaries.sort((a, b) => parseDateString(a.date).getTime() - parseDateString(b.date).getTime());
+
+    console.log(`[MileageService] Total de días unificados y ordenados: ${finalSummaries.length}`);
+    return finalSummaries;
 };
 
 const parseMileageCsv = (csv: string): DaySummary[] => {

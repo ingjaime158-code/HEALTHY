@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { fetchMileageData, DaySummary, MileageRecord } from '../services/mileageService';
+import { fetchMileageData, saveMileageRecords, DaySummary, MileageRecord } from '../services/mileageService';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
     AreaChart, Area, LabelList 
@@ -332,7 +332,14 @@ const MileageDashboard: React.FC = () => {
                 return [...filtered, ...summariesToAdd];
             });
 
-            alert(`✅ Cálculo completado con éxito. Se han integrado ${records.length} rutas reales calculadas al historial de este mes.`);
+            // Intentar persistir en Supabase
+            try {
+                await saveMileageRecords(records);
+                alert(`✅ Cálculo completado y guardado en la base de datos con éxito. Se han integrado ${records.length} rutas reales al historial.`);
+            } catch (saveError: any) {
+                console.error("Error al guardar registros en Supabase:", saveError);
+                alert(`⚠️ Cálculo completado con éxito, pero no se pudo guardar en la base de datos: ${saveError.message}. Los datos se muestran temporalmente en el dashboard.`);
+            }
 
         } catch (err: any) {
             console.error("Error calculating routes KM:", err);

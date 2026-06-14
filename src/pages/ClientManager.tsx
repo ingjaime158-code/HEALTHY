@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBusinesses, updateBusiness, addBusiness, getDrivers, Driver, Business } from '../services/dataService';
+import { getBusinesses, updateBusiness, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin } from '../services/dataService';
 import { pushToGoogleSheets, fetchClientsFromGoogleSheet, distributeRoutesToGoogleSheets } from '../services/googleSheetsService';
+import { solveTSP, solveTSPWithMatrix } from '../utils/routeOptimizer';
+declare const google: any;
 import { parseCsv } from '../utils/csvParser';
 import { calculateBagsForClient, getClientTiempos } from '../utils/bagCalculator';
 import { parseClientProfile, serializeClientProfile, parseCoordinates } from '../utils/clientProfile';
@@ -78,10 +80,30 @@ const ClientManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Sorting and Filtering States
-  const [sortField, setSortField] = useState<'name' | 'plan' | 'tiempos' | 'driver' | 'status' | null>('name');
+  const [sortField, setSortField] = useState<'name' | 'plan' | 'tiempos' | 'driver' | 'status' | 'routeOrder' | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [driverFilter, setDriverFilter] = useState<string>('TODOS');
   const [planFilter, setPlanFilter] = useState<string>('TODOS');
+  
+  // Route Optimization States
+  const [isOptimizeModalOpen, setIsOptimizeModalOpen] = useState<boolean>(false);
+  const [origins, setOrigins] = useState<BusinessOrigin[]>([]);
+  const [selectedOriginId, setSelectedOriginId] = useState<string>('DEFAULT');
+  const [isClosedRoute, setIsClosedRoute] = useState<boolean>(false);
+  const [selectedDriverForOptimize, setSelectedDriverForOptimize] = useState<string>('');
+  const [localOptimizeStops, setLocalOptimizeStops] = useState<any[]>([]);
+  const [isSavingRouteOrder, setIsSavingRouteOrder] = useState<boolean>(false);
+
+  // Auto-sort by routeOrder when a single driver is selected
+  useEffect(() => {
+    if (driverFilter !== 'TODOS') {
+      setSortField('routeOrder');
+      setSortDirection('asc');
+    } else {
+      setSortField('name');
+      setSortDirection('asc');
+    }
+  }, [driverFilter]);
   
   // Custom coordinated menu states: route tabs & active/inactive submenus
   const [selectedRoute, setSelectedRoute] = useState<'Matutina' | 'Vespertina'>(() => {
@@ -126,7 +148,325 @@ const ClientManager: React.FC = () => {
     // Keep day index updated
     setCurrentDayIndex(new Date().getDay());
     refreshData();
+    loadOrigins();
   }, []);
+
+  const loadOrigins = async () => {
+    try {
+      const fetchedOrigins = await getBusinessOrigins();
+      setOrigins(fetchedOrigins);
+    } catch (err) {
+      console.error("Error loading origins for optimizer:", err);
+    }
+  };
+
+  const selectedOriginCoords = useMemo(() => {
+    if (selectedOriginId === 'DEFAULT') {
+      return { lat: 25.6866, lng: -100.3161 }; // DEFAULT kitchen base center
+    }
+    const matched = origins.find(o => o.id === selectedOriginId);
+    if (matched) {
+      return { lat: matched.lat, lng: matched.lng };
+    }
+    return { lat: 25.6866, lng: -100.3161 };
+  }, [selectedOriginId, origins]);
+
+  // Get active drivers on the current route
+  const activeDriversForRoute = useMemo(() => {
+    const driversSet = new Set<string>();
+    parsedClients.forEach(c => {
+      if (c.routeType === selectedRoute && c.isActive && c.driver && c.driver !== 'SIN ASIGNAR') {
+        driversSet.add(c.driver.trim().toUpperCase());
+      }
+    });
+    return Array.from(driversSet).sort();
+  }, [parsedClients, selectedRoute]);
+
+  // Set default selected driver when modal opens or active drivers change
+  useEffect(() => {
+    if (activeDriversForRoute.length > 0 && !selectedDriverForOptimize) {
+      setSelectedDriverForOptimize(activeDriversForRoute[0]);
+    }
+  }, [activeDriversForRoute, selectedDriverForOptimize]);
+
+  // Fetch stops for the selected driver
+  useEffect(() => {
+    if (isOptimizeModalOpen && selectedDriverForOptimize) {
+      const stops = parsedClients.filter(c => 
+        c.routeType === selectedRoute && 
+        c.isActive && 
+        c.driver.trim().toUpperCase() === selectedDriverForOptimize
+      );
+      
+      const sortedStops = [...stops].sort((a, b) => {
+        const orderA = a.routeOrder !== undefined ? a.routeOrder : 9999;
+        const orderB = b.routeOrder !== undefined ? b.routeOrder : 9999;
+        return orderA - orderB;
+      });
+      
+      setLocalOptimizeStops(sortedStops);
+    }
+  }, [isOptimizeModalOpen, selectedDriverForOptimize, parsedClients, selectedRoute]);
+
+  const handleAutoOptimize = () => {
+    if (localOptimizeStops.length === 0) return;
+    
+    // Prepare locations for TSP solver
+    const tspLocations = localOptimizeStops.map(s => ({
+      id: s.id,
+      name: s.name,
+      lat: s.lat || 0,
+      lng: s.lng || 0
+    }));
+    
+    // Run TSP Solver
+    const { route: optimizedRoute } = solveTSP(
+      tspLocations,
+      selectedOriginCoords.lat,
+      selectedOriginCoords.lng,
+      isClosedRoute
+    );
+    
+    // Map optimized TSP result back to our local stops list
+    const newStops = optimizedRoute.map(r => {
+      return localOptimizeStops.find(s => s.id === r.id);
+    }).filter(Boolean);
+    
+    setLocalOptimizeStops(newStops);
+    showFeedbackToast(`⚡ Ruta de ${selectedDriverForOptimize} optimizada con éxito!`);
+  };
+
+  const handleGoogleMapsOptimize = () => {
+    if (localOptimizeStops.length === 0) return;
+    
+    const validStops = localOptimizeStops.filter(
+      s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
+    );
+    const invalidStops = localOptimizeStops.filter(
+      s => !s.lat || !s.lng || isNaN(s.lat) || isNaN(s.lng) || s.lat === 0 || s.lng === 0
+    );
+
+    if (validStops.length === 0) {
+      showFeedbackToast(`❌ Ninguna parada tiene coordenadas válidas para optimizar.`);
+      return;
+    }
+
+    if (validStops.length > 23) {
+      showFeedbackToast(`❌ Google Maps limita la optimización a 23 paradas. Usa OSRM o Local (Aprox.).`);
+      return;
+    }
+
+    if (typeof google === 'undefined' || !google.maps) {
+      showFeedbackToast(`❌ La API de Google Maps no se ha cargado. Verifica tu conexión.`);
+      return;
+    }
+
+    showFeedbackToast(`⚡ Optimizando ruta con Google Maps (Tráfico en vivo)...`);
+    setIsSavingRouteOrder(true);
+
+    const directionsService = new google.maps.DirectionsService();
+
+    const origin = new google.maps.LatLng(selectedOriginCoords.lat, selectedOriginCoords.lng);
+    
+    let destination;
+    let waypoints: google.maps.DirectionsWaypoint[] = [];
+
+    if (isClosedRoute) {
+      // Return to start: Destination is origin
+      destination = origin;
+      waypoints = validStops.map(s => ({
+        location: new google.maps.LatLng(s.lat, s.lng),
+        stopover: true
+      }));
+    } else {
+      // Open route: Last stop is destination, others are waypoints
+      const lastStop = validStops[validStops.length - 1];
+      destination = new google.maps.LatLng(lastStop.lat, lastStop.lng);
+      waypoints = validStops.slice(0, -1).map(s => ({
+        location: new google.maps.LatLng(s.lat, s.lng),
+        stopover: true
+      }));
+    }
+
+    directionsService.route({
+      origin,
+      destination,
+      waypoints,
+      optimizeWaypoints: true,
+      travelMode: google.maps.TravelMode.DRIVING
+    }, (result, status) => {
+      setIsSavingRouteOrder(false);
+      if (status === google.maps.DirectionsStatus.OK && result && result.routes[0]) {
+        const route = result.routes[0];
+        const order = route.waypoint_order; // Array of indices of the waypoints in optimized order
+        
+        let optimizedValid: any[] = [];
+        if (isClosedRoute) {
+          // Map optimized order back to stops
+          optimizedValid = order.map(idx => validStops[idx]);
+        } else {
+          // Map optimized order of waypoints, and append the destination at the end
+          const waypointsStops = validStops.slice(0, -1);
+          optimizedValid = order.map(idx => waypointsStops[idx]);
+          optimizedValid.push(validStops[validStops.length - 1]);
+        }
+        
+        const newStops = [...optimizedValid, ...invalidStops];
+        setLocalOptimizeStops(newStops);
+        showFeedbackToast(`✅ ¡Ruta optimizada con Google Maps considerando tráfico en tiempo real!`);
+      } else {
+        console.error("Google Maps Directions failed:", status, result);
+        showFeedbackToast(`❌ Error de Google Maps: ${status}. Intenta con Local u OSRM.`);
+      }
+    });
+  };
+
+  const handleOsrmOptimize = async () => {
+    if (localOptimizeStops.length === 0) return;
+
+    const validStops = localOptimizeStops.filter(
+      s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
+    );
+    const invalidStops = localOptimizeStops.filter(
+      s => !s.lat || !s.lng || isNaN(s.lat) || isNaN(s.lng) || s.lat === 0 || s.lng === 0
+    );
+
+    if (validStops.length === 0) {
+      showFeedbackToast(`❌ Ninguna parada tiene coordenadas válidas para optimizar.`);
+      return;
+    }
+
+    showFeedbackToast(`⚡ Conectando con OSRM (Docker) en localhost:5000...`);
+    setIsSavingRouteOrder(true);
+
+    try {
+      const points = [
+        { lat: selectedOriginCoords.lat, lng: selectedOriginCoords.lng },
+        ...validStops.map(s => ({ lat: s.lat, lng: s.lng }))
+      ];
+
+      const coordinatesStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+      const url = `http://localhost:5000/table/v1/driving/${coordinatesStr}?annotations=distance`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.code !== 'Ok' || !data.distances) {
+        throw new Error(`OSRM returned code: ${data.code}`);
+      }
+
+      const distanceMatrix = data.distances as number[][];
+
+      // Run TSP Solver with precalculated Matrix
+      const { route: optimizedRoute } = solveTSPWithMatrix(
+        validStops.map(s => ({
+          id: s.id,
+          name: s.name,
+          lat: s.lat,
+          lng: s.lng
+        })),
+        distanceMatrix,
+        isClosedRoute
+      );
+
+      // Map optimized TSP result back to our local stops list and append invalid stops at the end
+      const newStops = [
+        ...optimizedRoute.map(r => validStops.find(s => s.id === r.id)).filter(Boolean),
+        ...invalidStops
+      ];
+
+      setLocalOptimizeStops(newStops);
+      showFeedbackToast(`✅ ¡Ruta optimizada con OSRM (Docker) usando distancias viales reales!`);
+    } catch (err: any) {
+      console.error("OSRM optimization failed:", err);
+      showFeedbackToast(`❌ Docker OSRM offline. Ejecuta 'docker-compose up -d' en el puerto 5000.`);
+    } finally {
+      setIsSavingRouteOrder(false);
+    }
+  };
+
+
+  const handleMoveStop = (index: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === localOptimizeStops.length - 1) return;
+    
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const newStops = [...localOptimizeStops];
+    
+    // Swap elements
+    const temp = newStops[index];
+    newStops[index] = newStops[targetIndex];
+    newStops[targetIndex] = temp;
+    
+    setLocalOptimizeStops(newStops);
+  };
+
+  const handleSaveRouteOrder = async () => {
+    setIsSavingRouteOrder(true);
+    try {
+      showFeedbackToast(`💾 Guardando orden de entrega en Supabase...`);
+      
+      const promises = localOptimizeStops.map((stop, index) => {
+        const biz = dbClients.find(c => c.id === stop.id);
+        if (!biz) return Promise.resolve(true);
+        
+        const currentConfig = parseClientProfile(biz.email);
+        currentConfig.routeOrder = index + 1; // 1-indexed
+        const updatedEmail = JSON.stringify(currentConfig);
+        
+        return updateBusiness({
+          ...biz,
+          email: updatedEmail
+        });
+      });
+      
+      await Promise.all(promises);
+      
+      // Refresh local store
+      await fetchClientsAndDrivers(true);
+      
+      showFeedbackToast(`✅ Secuencia guardada con éxito!`);
+      setIsOptimizeModalOpen(false);
+    } catch (err) {
+      console.error("Error saving optimized route order:", err);
+      showFeedbackToast(`❌ Error al guardar la secuencia de ruta.`);
+    } finally {
+      setIsSavingRouteOrder(false);
+    }
+  };
+
+  const getGoogleMapsRouteUrl = () => {
+    if (localOptimizeStops.length === 0) return '';
+    
+    const originStr = `${selectedOriginCoords.lat},${selectedOriginCoords.lng}`;
+    
+    let destStr = '';
+    let waypointsStr = '';
+    
+    if (isClosedRoute) {
+      destStr = originStr;
+      waypointsStr = localOptimizeStops.map(s => `${s.lat},${s.lng}`).join('|');
+    } else {
+      const lastStop = localOptimizeStops[localOptimizeStops.length - 1];
+      destStr = `${lastStop.lat},${lastStop.lng}`;
+      
+      const waypoints = localOptimizeStops.slice(0, -1);
+      waypointsStr = waypoints.map(s => `${s.lat},${s.lng}`).join('|');
+    }
+    
+    const baseUrl = 'https://www.google.com/maps/dir/?api=1';
+    return `${baseUrl}&origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}${waypointsStr ? `&waypoints=${encodeURIComponent(waypointsStr)}` : ''}`;
+  };
 
   const refreshData = async () => {
     setLoading(true);
@@ -530,9 +870,16 @@ const ClientManager: React.FC = () => {
         return;
       }
 
+      // Sort active clients by routeOrder so they are distributed in the optimized order
+      const sortedActiveClients = [...activeClientsForRoute].sort((a, b) => {
+        const orderA = a.routeOrder !== undefined ? a.routeOrder : 9999;
+        const orderB = b.routeOrder !== undefined ? b.routeOrder : 9999;
+        return orderA - orderB;
+      });
+
       // 2. Group clients by driver
       const groupedByDriver: { [driverName: string]: any[] } = {};
-      activeClientsForRoute.forEach(c => {
+      sortedActiveClients.forEach(c => {
         const driverName = c.driver.trim().toUpperCase() || 'SIN ASIGNAR';
         if (!groupedByDriver[driverName]) {
           groupedByDriver[driverName] = [];
@@ -622,6 +969,8 @@ const ClientManager: React.FC = () => {
       let isActive = true;
       let tiempos = 1;
 
+      let routeOrder = 9999;
+
       if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
         try {
           const parsed = JSON.parse(biz.email);
@@ -631,6 +980,7 @@ const ClientManager: React.FC = () => {
           siglas = parsed.siglas || 'C';
           driver = parsed.driver || 'SIN ASIGNAR';
           isActive = parsed.isActive !== false;
+          routeOrder = parsed.routeOrder !== undefined ? Number(parsed.routeOrder) : 9999;
           tiempos = parsed.tiempos || 0;
           if (tiempos === 0 && parsed.plans && Array.isArray(parsed.plans)) {
             tiempos = parsed.plans.reduce((sum: number, p: any) => sum + (p.tiempos || 1), 0);
@@ -647,7 +997,8 @@ const ClientManager: React.FC = () => {
         siglas,
         driver,
         isActive,
-        tiempos
+        tiempos,
+        routeOrder
       };
     });
   }, [dbClients]);
@@ -673,7 +1024,7 @@ const ClientManager: React.FC = () => {
     return ['TODOS', ...Array.from(plans).sort()];
   }, [parsedClients]);
 
-  const handleSort = (field: 'name' | 'plan' | 'tiempos' | 'driver' | 'status') => {
+  const handleSort = (field: 'name' | 'plan' | 'tiempos' | 'driver' | 'status' | 'routeOrder') => {
     if (sortField === field) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
@@ -733,6 +1084,9 @@ const ClientManager: React.FC = () => {
         } else if (sortField === 'status') {
           valA = a.isActive ? 1 : 0;
           valB = b.isActive ? 1 : 0;
+        } else if (sortField === 'routeOrder') {
+          valA = a.routeOrder !== undefined ? a.routeOrder : 9999;
+          valB = b.routeOrder !== undefined ? b.routeOrder : 9999;
         }
 
         let comparison = 0;
@@ -993,6 +1347,16 @@ const ClientManager: React.FC = () => {
                   {isSyncingSheets ? 'Sincronizando...' : 'Sincronizar con Excel'}
                 </button>
 
+                {/* Optimizar Rutas Button */}
+                <button
+                  onClick={() => setIsOptimizeModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100 text-blue-700 hover:from-blue-100 hover:to-indigo-100 hover:border-blue-200 hover:-translate-y-0.5 active:scale-95 shadow-sm shadow-blue-100 shrink-0"
+                  title="Optimizar la secuencia de entrega para cada chofer de forma automática y visual"
+                >
+                  <span className="material-symbols-outlined text-[14px]">map</span>
+                  Optimizar Rutas
+                </button>
+
                 {/* Distribute Drivers Sheets Button */}
                 <button
                   onClick={handleDistributeSheets}
@@ -1153,6 +1517,17 @@ const ClientManager: React.FC = () => {
 
                 {/* 2. Sortable grid column headers aligning with row contents */}
                 <div className="flex-1 min-w-0 flex items-center gap-4">
+                  {/* Route Order Column */}
+                  <button 
+                    onClick={() => handleSort('routeOrder')} 
+                    className="w-[8%] min-w-[70px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
+                  >
+                    <span>Ruta №</span>
+                    <span className="material-symbols-outlined text-[14px]">
+                      {sortField === 'routeOrder' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </button>
+
                   {/* Name Column */}
                   <button 
                     onClick={() => handleSort('name')} 
@@ -1271,6 +1646,17 @@ const ClientManager: React.FC = () => {
                       {/* 2. Unified Row Columns: Name, Address, Plan, Tiempos, Driver */}
                       <div className="flex-1 min-w-0 flex flex-col lg:flex-row lg:items-center gap-2 md:gap-3">
                         
+                        {/* Route Order Column */}
+                        <div className="w-full lg:w-[8%] lg:min-w-[70px] shrink-0 bg-gradient-to-br from-blue-50/70 to-blue-50/30 text-blue-900 border border-blue-200/50 p-1.5 px-2 rounded-lg flex items-center gap-1 select-none shadow-sm hover:shadow hover:border-blue-350 transition-all duration-200">
+                          <span className="material-symbols-outlined text-[14px] text-blue-650 bg-blue-100 p-0.5 rounded border border-blue-200/20 shrink-0">tag</span>
+                          <div className="flex flex-col text-left min-w-0">
+                            <span className="text-[7px] font-black uppercase tracking-wider text-blue-500/85 leading-none">Ruta №</span>
+                            <span className="text-[11px] font-black mt-0.5 text-blue-950 truncate">
+                              {biz.routeOrder === 9999 ? 'N/A' : biz.routeOrder}
+                            </span>
+                          </div>
+                        </div>
+
                         {/* A. Name & Route Type Column */}
                         <div className="w-full lg:w-[16%] lg:min-w-[150px] shrink-0 flex flex-col gap-0.5 min-w-0">
                           <h4 className="text-xs md:text-sm font-black text-slate-900 uppercase tracking-tight truncate" title={biz.name || ''}>
@@ -1658,7 +2044,7 @@ const ClientManager: React.FC = () => {
                   const isSundayOrMonday = currentDayIndex === 0 || currentDayIndex === 1 || currentDayIndex === 2;
                   
                   return (
-                    <div className="bg-pink-500/5 border border-pink-500/10 rounded-xl p-4 mt-2 space-y-3">
+                     <div className="bg-pink-500/5 border border-pink-500/10 rounded-xl p-4 mt-2 space-y-3">
                       <label className="block text-[10px] font-black text-pink-400 uppercase tracking-widest flex items-center gap-2">
                         <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
                         Cálculo de Bolsas en Tiempo Real
@@ -1734,6 +2120,250 @@ const ClientManager: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ── ROUTE SEQUENCE OPTIMIZATION MODAL ────────────────────────────────── */}
+      {isOptimizeModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#051024] text-white w-full max-w-2xl max-h-[90vh] rounded-[2rem] border border-white/10 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="p-6 pb-4 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-blue-950/20 to-indigo-950/20 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center border border-blue-500/20">
+                  <span className="material-symbols-outlined text-[22px]">map</span>
+                </div>
+                <div>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-400">Eficientar Recorrido</h3>
+                  <h2 className="text-base font-black text-white uppercase mt-0.5">
+                    Optimizar Secuencia de Ruta ({selectedRoute === 'Matutina' ? '🌅 Matutina' : '🌇 Vespertina'})
+                  </h2>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setIsOptimizeModalOpen(false)}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              
+              {/* Configuration Panel */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white/5 border border-white/10 rounded-2xl p-4">
+                
+                {/* Selector de Punto de Inicio */}
+                <div className="space-y-1">
+                  <label className="block text-[8px] font-black uppercase tracking-widest text-white/50">📍 Punto de Partida (Origen)</label>
+                  <select
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none cursor-pointer"
+                    value={selectedOriginId}
+                    onChange={(e) => setSelectedOriginId(e.target.value)}
+                  >
+                    <option value="DEFAULT" className="bg-slate-900">Cocina Healthy Dreams (Central)</option>
+                    {origins.map(origin => (
+                      <option key={origin.id} value={origin.id} className="bg-slate-900">
+                        {origin.name.toUpperCase()} ({origin.address})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tipo de Ruta / Retorno */}
+                <div className="space-y-1 flex flex-col justify-center">
+                  <label className="block text-[8px] font-black uppercase tracking-widest text-white/50 mb-2">🏁 Retorno al Inicio</label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isClosedRoute}
+                      onChange={(e) => setIsClosedRoute(e.target.checked)}
+                      className="rounded border-white/10 bg-black/40 text-blue-600 focus:ring-blue-500 focus:ring-opacity-25"
+                    />
+                    <span className="text-xs font-bold text-white/80">Retornar a Cocina al Finalizar</span>
+                  </label>
+                </div>
+
+              </div>
+
+              {/* Driver Select Dropdown */}
+              <div className="space-y-1">
+                <label className="block text-[8px] font-black uppercase tracking-widest text-white/50">🚚 Chofer a Optimizar</label>
+                <select
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none cursor-pointer"
+                  value={selectedDriverForOptimize}
+                  onChange={(e) => setSelectedDriverForOptimize(e.target.value.toUpperCase())}
+                >
+                  {activeDriversForRoute.length === 0 ? (
+                    <option className="bg-slate-900">NO HAY CHOFERES CON CLIENTES ACTIVOS</option>
+                  ) : (
+                    activeDriversForRoute.map(driver => (
+                      <option key={driver} value={driver} className="bg-slate-900">
+                        {driver} ({parsedClients.filter(c => c.routeType === selectedRoute && c.isActive && c.driver.trim().toUpperCase() === driver).length} paradas)
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Optimization Methods Card Group */}
+              <div className="space-y-2">
+                <label className="block text-[8px] font-black uppercase tracking-widest text-white/50">⚡ Métodos de Optimización de Ruta</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Local Heuristic */}
+                  <button
+                    type="button"
+                    onClick={handleAutoOptimize}
+                    disabled={localOptimizeStops.length === 0}
+                    className="p-3 bg-white/5 border border-white/10 hover:bg-blue-600/10 hover:border-blue-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-blue-400 font-black text-[10px] uppercase tracking-wider">
+                      <span className="material-symbols-outlined text-[16px]">calculate</span>
+                      Local (Aprox.)
+                    </div>
+                    <span className="text-[9px] font-semibold text-white/50 leading-tight">Matemático lineal (Haversine). Rápido, gratis e ilimitado.</span>
+                  </button>
+
+                  {/* Google Maps */}
+                  <button
+                    type="button"
+                    onClick={handleGoogleMapsOptimize}
+                    disabled={localOptimizeStops.length === 0 || localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23}
+                    className="p-3 bg-white/5 border border-white/10 hover:bg-emerald-600/10 hover:border-emerald-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
+                    title={localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23 ? "Máximo 23 paradas para Google Maps" : "Optimizar con tráfico real"}
+                  >
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-black text-[10px] uppercase tracking-wider">
+                      <span className="material-symbols-outlined text-[16px]">traffic</span>
+                      Google Maps
+                    </div>
+                    <span className="text-[9px] font-semibold text-white/50 leading-tight">
+                      {localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23 
+                        ? "Deshabilitado: Excede el límite de 23 paradas permitidas por Google." 
+                        : "Callejero real considerando sentidos y tráfico en vivo (< 24 paradas)."}
+                    </span>
+                  </button>
+
+                  {/* OSRM Local Docker */}
+                  <button
+                    type="button"
+                    onClick={handleOsrmOptimize}
+                    disabled={localOptimizeStops.length === 0}
+                    className="p-3 bg-white/5 border border-white/10 hover:bg-purple-600/10 hover:border-purple-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 text-purple-400 font-black text-[10px] uppercase tracking-wider">
+                      <span className="material-symbols-outlined text-[16px]">dns</span>
+                      OSRM (Docker)
+                    </div>
+                    <span className="text-[9px] font-semibold text-white/50 leading-tight">Callejero local gratuito e ilimitado (computadora del usuario en puerto 5000).</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Stops list with manual arrows */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[8px] font-black uppercase tracking-widest text-white/50">📋 Secuencia de Visitas ({localOptimizeStops.length} Paradas)</label>
+                  
+                  {localOptimizeStops.length > 0 && (
+                    <a
+                      href={getGoogleMapsRouteUrl()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 transition-colors"
+                      title="Ver el itinerario completo trazado en Google Maps"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">map</span>
+                      Ver Ruta en Google Maps ↗
+                    </a>
+                  )}
+                </div>
+
+                {localOptimizeStops.length === 0 ? (
+                  <div className="py-12 border border-dashed border-white/10 rounded-2xl text-center text-white/40 text-xs font-bold bg-white/2">
+                    Ninguna parada de entrega activa encontrada para este chofer.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-[30vh] overflow-y-auto pr-1 custom-scrollbar">
+                    {localOptimizeStops.map((stop, index) => {
+                      const hasCoords = stop.lat && stop.lng && stop.lat !== 0 && stop.lng !== 0;
+
+                      return (
+                        <div key={stop.id} className="flex items-center justify-between p-2.5 bg-black/40 border border-white/5 hover:border-white/10 rounded-xl group transition-all">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Sequence Number Badge */}
+                            <span className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/20 flex items-center justify-center font-mono font-black text-xs shrink-0 select-none">
+                              {index + 1}
+                            </span>
+                            
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-black uppercase text-white truncate max-w-[280px]">
+                                {stop.name}
+                              </span>
+                              <span className="text-[9px] text-white/50 truncate max-w-[320px]">
+                                {stop.location || 'Sin dirección'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Coordinate Warning */}
+                            {!hasCoords && (
+                              <span className="material-symbols-outlined text-[16px] text-amber-500" title="Cliente sin coordenadas. Se agrupará al final.">
+                                error
+                              </span>
+                            )}
+
+                            {/* Manual Reordering Controls */}
+                            <button
+                              onClick={() => handleMoveStop(index, 'up')}
+                              disabled={index === 0}
+                              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all disabled:opacity-20"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleMoveStop(index, 'down')}
+                              disabled={index === localOptimizeStops.length - 1}
+                              className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all disabled:opacity-20"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-white/10 bg-white/2 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsOptimizeModalOpen(false)}
+                className="px-5 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+              >
+                Cancelar
+              </button>
+              
+              <button
+                type="button"
+                onClick={handleSaveRouteOrder}
+                disabled={localOptimizeStops.length === 0 || isSavingRouteOrder}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/10 hover:shadow-blue-600/25 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-[15px]">{isSavingRouteOrder ? 'sync' : 'save'}</span>
+                {isSavingRouteOrder ? 'Guardando...' : 'Aplicar Secuencia'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

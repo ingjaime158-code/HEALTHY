@@ -12,6 +12,7 @@ export interface ClientProfileConfig {
   isActive: boolean;
   extraDishes?: number;
   tiempos?: number;
+  routeOrder?: number;
   plans?: Array<{
     id: string;
     planType: string;
@@ -31,6 +32,7 @@ const DEFAULT_PROFILE: ClientProfileConfig = {
   isActive: true,
   extraDishes: 0,
   tiempos: 1,
+  routeOrder: 9999,
   plans: []
 };
 
