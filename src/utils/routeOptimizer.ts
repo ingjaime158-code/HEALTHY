@@ -1,13 +1,5 @@
 /**
- * Utility to optimize route sequences using a TSP (Traveling Salesperson Problem) solver.
- * Ported and adapted from the Python 'RUTAS HEALTHY' route assignment logic.
- *
- * Implements:
- * 1. Constructive Phase: Nearest Neighbor heuristic starting from the base/kitchen origin.
- * 2. Improvement Phase: Iterative local search applying:
- *    - Node Relocate (shifting a single node to another position)
- *    - Or-opt (segment relocate, shifting 2-3 consecutive nodes)
- *    - 2-opt classic (reversing subsegments to eliminate path crossings)
+ * Test version of Route Optimizer with forced furthest stop logic.
  */
 
 export interface TSPLocation {
@@ -17,10 +9,6 @@ export interface TSPLocation {
   lng: number;
 }
 
-/**
- * Calculates geodetic distance in meters between two lat/lng points using the Haversine formula.
- * Applies a 1.3x scaling factor to approximate street/road distance.
- */
 export function getHaversineDistance(
   lat1: number,
   lng1: number,
@@ -41,13 +29,6 @@ export function getHaversineDistance(
   return R * c * 1.3; // 1.3x road scale factor
 }
 
-/**
- * Calculates the total length of a delivery route.
- * @param route The sequence of delivery stops.
- * @param startLat Starting origin latitude.
- * @param startLng Starting origin longitude.
- * @param endAtStart If true, includes the distance from the last stop back to the origin.
- */
 export function calculateRouteDistance(
   route: TSPLocation[],
   startLat: number,
@@ -77,15 +58,13 @@ export function calculateRouteDistance(
   return total;
 }
 
-/**
- * Generates an initial route using the Nearest Neighbor heuristic.
- */
 export function nearestNeighborTSP(
   stops: TSPLocation[],
   startLat: number,
-  startLng: number
+  startLng: number,
+  excludeStopId?: string
 ): TSPLocation[] {
-  const unvisited = [...stops];
+  const unvisited = stops.filter(s => s.id !== excludeStopId);
   const route: TSPLocation[] = [];
 
   let currentLat = startLat;
@@ -117,16 +96,14 @@ export function nearestNeighborTSP(
   return route;
 }
 
-/**
- * Generates an initial route using the Cheapest Insertion heuristic.
- */
 export function cheapestInsertionTSP(
   stops: TSPLocation[],
   startLat: number,
   startLng: number,
-  endAtStart: boolean = false
+  endAtStart: boolean = false,
+  excludeStopId?: string
 ): TSPLocation[] {
-  const unvisited = [...stops];
+  const unvisited = stops.filter(s => s.id !== excludeStopId);
   const route: TSPLocation[] = [];
 
   if (unvisited.length === 0) return route;
@@ -153,11 +130,9 @@ export function cheapestInsertionTSP(
       const p = unvisited[i];
 
       for (let pos = 0; pos <= route.length; pos++) {
-        // Previous node coordinates (origin if pos === 0)
         const prevLat = pos > 0 ? route[pos - 1].lat : startLat;
         const prevLng = pos > 0 ? route[pos - 1].lng : startLng;
 
-        // Next node coordinates (origin if closed route and pos === route.length)
         const isLastOpen = (!endAtStart && pos === route.length);
         
         let d_prev_to_p = getHaversineDistance(prevLat, prevLng, p.lat, p.lng);
@@ -188,18 +163,12 @@ export function cheapestInsertionTSP(
   return route;
 }
 
-/**
- * Optimizes a route sequence using 2-opt and Or-opt heuristics.
- * @param route The initial sequence of stops.
- * @param startLat Origin latitude.
- * @param startLng Origin longitude.
- * @param endAtStart If true, optimizes for a closed loop (returning to start).
- */
 export function optimizeTSPSequence(
   route: TSPLocation[],
   startLat: number,
   startLng: number,
-  endAtStart: boolean = false
+  endAtStart: boolean = false,
+  forzarUltimo: boolean = false
 ): TSPLocation[] {
   if (route.length < 3) return [...route];
 
@@ -208,16 +177,18 @@ export function optimizeTSPSequence(
 
   let improved = true;
   let iterations = 0;
-  const maxIterations = 500; // safety ceiling to prevent infinite loops
+  const maxIterations = 500;
+
+  const limit = forzarUltimo ? bestRoute.length - 1 : bestRoute.length;
 
   while (improved && iterations < maxIterations) {
     improved = false;
     iterations++;
 
-    // ── 1. NODE RELOCATION (Shifting single nodes) ──
-    for (let i = 0; i < bestRoute.length; i++) {
+    // 1. NODE RELOCATION
+    for (let i = 0; i < limit; i++) {
       const node = bestRoute[i];
-      for (let j = 0; j < bestRoute.length; j++) {
+      for (let j = 0; j < limit; j++) {
         if (i === j) continue;
 
         const candidate = [...bestRoute];
@@ -236,16 +207,17 @@ export function optimizeTSPSequence(
     }
     if (improved) continue;
 
-    // ── 2. OR-OPT (Segment Relocation of size 2 and 3) ──
+    // 2. OR-OPT (Segment Relocation)
     for (const segLen of [3, 2]) {
-      if (bestRoute.length < segLen + 1) continue;
+      if (limit < segLen + 1) continue;
 
       let foundSegment = false;
-      for (let i = 0; i <= bestRoute.length - segLen; i++) {
+      for (let i = 0; i <= limit - segLen; i++) {
         const segment = bestRoute.slice(i, i + segLen);
         const withoutSegment = [...bestRoute.slice(0, i), ...bestRoute.slice(i + segLen)];
+        const limInsert = forzarUltimo ? withoutSegment.length - 1 : withoutSegment.length;
 
-        for (let j = 0; j <= withoutSegment.length; j++) {
+        for (let j = 0; j <= limInsert; j++) {
           const candidate = [
             ...withoutSegment.slice(0, j),
             ...segment,
@@ -266,9 +238,9 @@ export function optimizeTSPSequence(
     }
     if (improved) continue;
 
-    // ── 3. CLASSIC 2-OPT (Reversing subsegments) ──
-    for (let i = 0; i < bestRoute.length - 1; i++) {
-      for (let j = i + 1; j < bestRoute.length; j++) {
+    // 3. CLASSIC 2-OPT
+    for (let i = 0; i < limit - 1; i++) {
+      for (let j = i + 1; j < limit; j++) {
         const candidate = [
           ...bestRoute.slice(0, i),
           ...bestRoute.slice(i, j + 1).reverse(),
@@ -289,16 +261,12 @@ export function optimizeTSPSequence(
   return bestRoute;
 }
 
-/**
- * Main solver entry point that combines NN constructive heuristic and ATSP improvements.
- */
 export function solveTSP(
   stops: TSPLocation[],
   startLat: number,
   startLng: number,
   endAtStart: boolean = false
 ): { route: TSPLocation[]; distanceMeters: number } {
-  // Filter out any stops with invalid coordinates
   const validStops = stops.filter(
     (s) => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
   );
@@ -311,20 +279,37 @@ export function solveTSP(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Generate initial sequence using Nearest Neighbor
-  const nnRoute = nearestNeighborTSP(validStops, startLat, startLng);
-  // Generate initial sequence using Cheapest Insertion
-  const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, endAtStart);
+  // Identify the furthest stop from origin to force it as the endpoint
+  let furthestStop: TSPLocation | null = null;
+  let maxDist = -1;
+  let furthestIdx = -1;
+  for (let i = 0; i < validStops.length; i++) {
+    const dist = getHaversineDistance(startLat, startLng, validStops[i].lat, validStops[i].lng);
+    if (dist > maxDist) {
+      maxDist = dist;
+      furthestStop = validStops[i];
+      furthestIdx = i;
+    }
+  }
 
-  // Compare distances to select the best start sequence
-  const nnDist = calculateRouteDistance(nnRoute, startLat, startLng, endAtStart);
-  const ciDist = calculateRouteDistance(ciRoute, startLat, startLng, endAtStart);
-  const initialRoute = nnDist <= ciDist ? nnRoute : ciRoute;
+  const excludeStopId = furthestStop?.id;
+  const nnRoute = nearestNeighborTSP(validStops, startLat, startLng, excludeStopId);
+  const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, endAtStart, excludeStopId);
 
-  // Improve sequence
-  const optimizedRoute = optimizeTSPSequence(initialRoute, startLat, startLng, endAtStart);
+  if (furthestStop) {
+    nnRoute.push(furthestStop);
+    ciRoute.push(furthestStop);
+  }
 
-  // Append any invalid stops at the very end
+  // Optimize both initial sequences and pick the best one
+  const optNNRoute = optimizeTSPSequence(nnRoute, startLat, startLng, endAtStart, true);
+  const optCIRoute = optimizeTSPSequence(ciRoute, startLat, startLng, endAtStart, true);
+
+  const nnDistOpt = calculateRouteDistance(optNNRoute, startLat, startLng, endAtStart);
+  const ciDistOpt = calculateRouteDistance(optCIRoute, startLat, startLng, endAtStart);
+
+  const optimizedRoute = nnDistOpt <= ciDistOpt ? optNNRoute : optCIRoute;
+
   const finalRoute = [...optimizedRoute, ...invalidStops];
   const distance = calculateRouteDistance(optimizedRoute, startLat, startLng, endAtStart);
 
@@ -334,11 +319,6 @@ export function solveTSP(
   };
 }
 
-/**
- * Calculates the total length of a delivery route using a 2D distance matrix.
- * Index 0 in the matrix is the starting location.
- * Indices in routeIndices correspond to columns/rows in the distanceMatrix.
- */
 export function calculateMatrixRouteDistance(
   routeIndices: number[],
   distanceMatrix: number[][],
@@ -346,7 +326,6 @@ export function calculateMatrixRouteDistance(
 ): number {
   if (routeIndices.length === 0) return 0;
 
-  // From origin (index 0) to first stop
   let total = distanceMatrix[0]?.[routeIndices[0]] ?? 0;
   for (let i = 0; i < routeIndices.length - 1; i++) {
     const fromIdx = routeIndices[i];
@@ -360,17 +339,16 @@ export function calculateMatrixRouteDistance(
   return total;
 }
 
-/**
- * Generates an initial route using the Nearest Neighbor heuristic on a distance matrix.
- */
 export function nearestNeighborTSPWithMatrix(
   stopsCount: number,
-  distanceMatrix: number[][]
+  distanceMatrix: number[][],
+  excludeIndex?: number
 ): number[] {
-  const unvisited = Array.from({ length: stopsCount }, (_, i) => i + 1); // Indices 1 to stopsCount
+  const unvisited = Array.from({ length: stopsCount }, (_, i) => i + 1)
+    .filter(idx => idx !== excludeIndex);
   const route: number[] = [];
 
-  let currentIdx = 0; // starts at origin (index 0)
+  let currentIdx = 0;
 
   while (unvisited.length > 0) {
     let bestDist = Infinity;
@@ -386,7 +364,6 @@ export function nearestNeighborTSPWithMatrix(
     }
 
     if (bestIdx === -1) {
-      // Fallback if we cannot find a valid next stop
       bestIdx = 0;
     }
 
@@ -398,20 +375,18 @@ export function nearestNeighborTSPWithMatrix(
   return route;
 }
 
-/**
- * Generates an initial route using the Cheapest Insertion heuristic on a distance matrix.
- */
 export function cheapestInsertionTSPWithMatrix(
   stopsCount: number,
   distanceMatrix: number[][],
-  endAtStart: boolean = false
+  endAtStart: boolean = false,
+  excludeIndex?: number
 ): number[] {
-  const unvisited = Array.from({ length: stopsCount }, (_, i) => i + 1); // Indices 1 to stopsCount
+  const unvisited = Array.from({ length: stopsCount }, (_, i) => i + 1)
+    .filter(idx => idx !== excludeIndex);
   const route: number[] = [];
 
   if (unvisited.length === 0) return route;
 
-  // Find the closest stop to the starting origin (index 0)
   let bestDistIni = Infinity;
   let bestIdxIni = -1;
   for (let i = 0; i < unvisited.length; i++) {
@@ -434,10 +409,7 @@ export function cheapestInsertionTSPWithMatrix(
       const targetIdx = unvisited[i];
 
       for (let pos = 0; pos <= route.length; pos++) {
-        // Previous node index (index 0 if pos === 0)
         const prevIdx = pos > 0 ? route[pos - 1] : 0;
-
-        // Next node index (index 0 if closed route and pos === route.length)
         const isLastOpen = (!endAtStart && pos === route.length);
 
         let d_prev_to_p = distanceMatrix[prevIdx]?.[targetIdx] ?? Infinity;
@@ -467,13 +439,11 @@ export function cheapestInsertionTSPWithMatrix(
   return route;
 }
 
-/**
- * Optimizes a route sequence indices using 2-opt and Or-opt heuristics based on a distance matrix.
- */
 export function optimizeTSPSequenceWithMatrix(
   routeIndices: number[],
   distanceMatrix: number[][],
-  endAtStart: boolean = false
+  endAtStart: boolean = false,
+  forzarUltimo: boolean = false
 ): number[] {
   if (routeIndices.length < 3) return [...routeIndices];
 
@@ -482,16 +452,18 @@ export function optimizeTSPSequenceWithMatrix(
 
   let improved = true;
   let iterations = 0;
-  const maxIterations = 500; // safety ceiling
+  const maxIterations = 500;
+
+  const limit = forzarUltimo ? bestRoute.length - 1 : bestRoute.length;
 
   while (improved && iterations < maxIterations) {
     improved = false;
     iterations++;
 
-    // 1. NODE RELOCATION (Shifting single nodes)
-    for (let i = 0; i < bestRoute.length; i++) {
+    // 1. NODE RELOCATION
+    for (let i = 0; i < limit; i++) {
       const node = bestRoute[i];
-      for (let j = 0; j < bestRoute.length; j++) {
+      for (let j = 0; j < limit; j++) {
         if (i === j) continue;
 
         const candidate = [...bestRoute];
@@ -510,16 +482,17 @@ export function optimizeTSPSequenceWithMatrix(
     }
     if (improved) continue;
 
-    // 2. OR-OPT (Segment Relocation of size 2 and 3)
+    // 2. OR-OPT (Segment Relocation)
     for (const segLen of [3, 2]) {
-      if (bestRoute.length < segLen + 1) continue;
+      if (limit < segLen + 1) continue;
 
       let foundSegment = false;
-      for (let i = 0; i <= bestRoute.length - segLen; i++) {
+      for (let i = 0; i <= limit - segLen; i++) {
         const segment = bestRoute.slice(i, i + segLen);
         const withoutSegment = [...bestRoute.slice(0, i), ...bestRoute.slice(i + segLen)];
+        const limInsert = forzarUltimo ? withoutSegment.length - 1 : withoutSegment.length;
 
-        for (let j = 0; j <= withoutSegment.length; j++) {
+        for (let j = 0; j <= limInsert; j++) {
           const candidate = [
             ...withoutSegment.slice(0, j),
             ...segment,
@@ -540,9 +513,9 @@ export function optimizeTSPSequenceWithMatrix(
     }
     if (improved) continue;
 
-    // 3. CLASSIC 2-OPT (Reversing subsegments)
-    for (let i = 0; i < bestRoute.length - 1; i++) {
-      for (let j = i + 1; j < bestRoute.length; j++) {
+    // 3. CLASSIC 2-OPT
+    for (let i = 0; i < limit - 1; i++) {
+      for (let j = i + 1; j < limit; j++) {
         const candidate = [
           ...bestRoute.slice(0, i),
           ...bestRoute.slice(i, j + 1).reverse(),
@@ -563,18 +536,11 @@ export function optimizeTSPSequenceWithMatrix(
   return bestRoute;
 }
 
-/**
- * Solves TSP using a precalculated distance matrix.
- * @param stops The list of delivery locations.
- * @param distanceMatrix Distance matrix matching origin (index 0) and validStops (indices 1..N).
- * @param endAtStart If true, optimizes for a closed loop.
- */
 export function solveTSPWithMatrix(
   stops: TSPLocation[],
   distanceMatrix: number[][],
   endAtStart: boolean = false
 ): { route: TSPLocation[]; distanceMeters: number } {
-  // Filter out any stops with invalid coordinates
   const validStops = stops.filter(
     (s) => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
   );
@@ -587,23 +553,39 @@ export function solveTSPWithMatrix(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Generate initial sequence of indices using Nearest Neighbor
-  const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix);
-  // Generate initial sequence of indices using Cheapest Insertion
-  const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, endAtStart);
+  // Find the furthest stop index from origin using the matrix (index 0 is origin, indices 1..N are stops)
+  let maxDist = -1;
+  let furthestIdxInValidStops = -1;
+  for (let i = 0; i < validStops.length; i++) {
+    const matrixIdx = i + 1;
+    const dist = distanceMatrix[0]?.[matrixIdx] ?? 0;
+    if (dist > maxDist) {
+      maxDist = dist;
+      furthestIdxInValidStops = i;
+    }
+  }
 
-  // Compare distances to select the best start sequence indices
-  const nnDist = calculateMatrixRouteDistance(nnIndices, distanceMatrix, endAtStart);
-  const ciDist = calculateMatrixRouteDistance(ciIndices, distanceMatrix, endAtStart);
-  const initialIndices = nnDist <= ciDist ? nnIndices : ciIndices;
+  const excludeIndex = furthestIdxInValidStops !== -1 ? furthestIdxInValidStops + 1 : undefined;
 
-  // Improve sequence
-  const optimizedIndices = optimizeTSPSequenceWithMatrix(initialIndices, distanceMatrix, endAtStart);
+  const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix, excludeIndex);
+  const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, endAtStart, excludeIndex);
 
-  // Map indices back to stops (index k corresponds to validStops[k - 1])
+  if (excludeIndex !== undefined) {
+    nnIndices.push(excludeIndex);
+    ciIndices.push(excludeIndex);
+  }
+
+  // Optimize both initial sequences and pick the best one
+  const optNNIndices = optimizeTSPSequenceWithMatrix(nnIndices, distanceMatrix, endAtStart, true);
+  const optCIIndices = optimizeTSPSequenceWithMatrix(ciIndices, distanceMatrix, endAtStart, true);
+
+  const nnDistOpt = calculateMatrixRouteDistance(optNNIndices, distanceMatrix, endAtStart);
+  const ciDistOpt = calculateMatrixRouteDistance(optCIIndices, distanceMatrix, endAtStart);
+
+  const optimizedIndices = nnDistOpt <= ciDistOpt ? optNNIndices : optCIIndices;
+
   const optimizedRoute = optimizedIndices.map((idx) => validStops[idx - 1]);
 
-  // Append any invalid stops at the very end
   const finalRoute = [...optimizedRoute, ...invalidStops];
   const distance = calculateMatrixRouteDistance(optimizedIndices, distanceMatrix, endAtStart);
 
@@ -612,4 +594,3 @@ export function solveTSPWithMatrix(
     distanceMeters: Math.round(distance)
   };
 }
-
