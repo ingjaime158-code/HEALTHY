@@ -207,13 +207,13 @@ const ClientManager: React.FC = () => {
 
   const selectedOriginCoords = useMemo(() => {
     if (selectedOriginId === 'DEFAULT') {
-      return { lat: 25.6866, lng: -100.3161 }; // DEFAULT kitchen base center
+      return { lat: 25.781917, lng: -100.191302 }; // DEFAULT kitchen base center (Apodaca/Churubusco)
     }
     const matched = origins.find(o => o.id === selectedOriginId);
     if (matched) {
       return { lat: matched.lat, lng: matched.lng };
     }
-    return { lat: 25.6866, lng: -100.3161 };
+    return { lat: 25.781917, lng: -100.191302 };
   }, [selectedOriginId, origins]);
 
   // Get active drivers on the current route
