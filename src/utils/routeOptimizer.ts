@@ -118,6 +118,77 @@ export function nearestNeighborTSP(
 }
 
 /**
+ * Generates an initial route using the Cheapest Insertion heuristic.
+ */
+export function cheapestInsertionTSP(
+  stops: TSPLocation[],
+  startLat: number,
+  startLng: number,
+  endAtStart: boolean = false
+): TSPLocation[] {
+  const unvisited = [...stops];
+  const route: TSPLocation[] = [];
+
+  if (unvisited.length === 0) return route;
+
+  // Find the closest stop to the starting origin
+  let bestDistIni = Infinity;
+  let bestIdxIni = -1;
+  for (let i = 0; i < unvisited.length; i++) {
+    const dist = getHaversineDistance(startLat, startLng, unvisited[i].lat, unvisited[i].lng);
+    if (dist < bestDistIni) {
+      bestDistIni = dist;
+      bestIdxIni = i;
+    }
+  }
+
+  route.push(unvisited.splice(bestIdxIni, 1)[0]);
+
+  while (unvisited.length > 0) {
+    let bestInsertionCost = Infinity;
+    let bestPos = -1;
+    let bestUnvisitedIdx = -1;
+
+    for (let i = 0; i < unvisited.length; i++) {
+      const p = unvisited[i];
+
+      for (let pos = 0; pos <= route.length; pos++) {
+        // Previous node coordinates (origin if pos === 0)
+        const prevLat = pos > 0 ? route[pos - 1].lat : startLat;
+        const prevLng = pos > 0 ? route[pos - 1].lng : startLng;
+
+        // Next node coordinates (origin if closed route and pos === route.length)
+        const isLastOpen = (!endAtStart && pos === route.length);
+        
+        let d_prev_to_p = getHaversineDistance(prevLat, prevLng, p.lat, p.lng);
+        let d_p_to_next = 0;
+        let d_prev_to_next = 0;
+
+        if (!isLastOpen) {
+          const nextLat = pos < route.length ? route[pos].lat : startLat;
+          const nextLng = pos < route.length ? route[pos].lng : startLng;
+          d_p_to_next = getHaversineDistance(p.lat, p.lng, nextLat, nextLng);
+          d_prev_to_next = getHaversineDistance(prevLat, prevLng, nextLat, nextLng);
+        }
+
+        const insertionCost = d_prev_to_p + d_p_to_next - d_prev_to_next;
+
+        if (insertionCost < bestInsertionCost) {
+          bestInsertionCost = insertionCost;
+          bestPos = pos;
+          bestUnvisitedIdx = i;
+        }
+      }
+    }
+
+    const nextStop = unvisited.splice(bestUnvisitedIdx, 1)[0];
+    route.splice(bestPos, 0, nextStop);
+  }
+
+  return route;
+}
+
+/**
  * Optimizes a route sequence using 2-opt and Or-opt heuristics.
  * @param route The initial sequence of stops.
  * @param startLat Origin latitude.
@@ -240,8 +311,15 @@ export function solveTSP(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Generate initial sequence
-  const initialRoute = nearestNeighborTSP(validStops, startLat, startLng);
+  // Generate initial sequence using Nearest Neighbor
+  const nnRoute = nearestNeighborTSP(validStops, startLat, startLng);
+  // Generate initial sequence using Cheapest Insertion
+  const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, endAtStart);
+
+  // Compare distances to select the best start sequence
+  const nnDist = calculateRouteDistance(nnRoute, startLat, startLng, endAtStart);
+  const ciDist = calculateRouteDistance(ciRoute, startLat, startLng, endAtStart);
+  const initialRoute = nnDist <= ciDist ? nnRoute : ciRoute;
 
   // Improve sequence
   const optimizedRoute = optimizeTSPSequence(initialRoute, startLat, startLng, endAtStart);
@@ -315,6 +393,75 @@ export function nearestNeighborTSPWithMatrix(
     const nextIdx = unvisited.splice(bestIdx, 1)[0];
     route.push(nextIdx);
     currentIdx = nextIdx;
+  }
+
+  return route;
+}
+
+/**
+ * Generates an initial route using the Cheapest Insertion heuristic on a distance matrix.
+ */
+export function cheapestInsertionTSPWithMatrix(
+  stopsCount: number,
+  distanceMatrix: number[][],
+  endAtStart: boolean = false
+): number[] {
+  const unvisited = Array.from({ length: stopsCount }, (_, i) => i + 1); // Indices 1 to stopsCount
+  const route: number[] = [];
+
+  if (unvisited.length === 0) return route;
+
+  // Find the closest stop to the starting origin (index 0)
+  let bestDistIni = Infinity;
+  let bestIdxIni = -1;
+  for (let i = 0; i < unvisited.length; i++) {
+    const targetIdx = unvisited[i];
+    const dist = distanceMatrix[0]?.[targetIdx] ?? Infinity;
+    if (dist < bestDistIni) {
+      bestDistIni = dist;
+      bestIdxIni = i;
+    }
+  }
+
+  route.push(unvisited.splice(bestIdxIni, 1)[0]);
+
+  while (unvisited.length > 0) {
+    let bestInsertionCost = Infinity;
+    let bestPos = -1;
+    let bestUnvisitedIdx = -1;
+
+    for (let i = 0; i < unvisited.length; i++) {
+      const targetIdx = unvisited[i];
+
+      for (let pos = 0; pos <= route.length; pos++) {
+        // Previous node index (index 0 if pos === 0)
+        const prevIdx = pos > 0 ? route[pos - 1] : 0;
+
+        // Next node index (index 0 if closed route and pos === route.length)
+        const isLastOpen = (!endAtStart && pos === route.length);
+
+        let d_prev_to_p = distanceMatrix[prevIdx]?.[targetIdx] ?? Infinity;
+        let d_p_to_next = 0;
+        let d_prev_to_next = 0;
+
+        if (!isLastOpen) {
+          const nextIdx = pos < route.length ? route[pos] : 0;
+          d_p_to_next = distanceMatrix[targetIdx]?.[nextIdx] ?? Infinity;
+          d_prev_to_next = distanceMatrix[prevIdx]?.[nextIdx] ?? Infinity;
+        }
+
+        const insertionCost = d_prev_to_p + d_p_to_next - d_prev_to_next;
+
+        if (insertionCost < bestInsertionCost) {
+          bestInsertionCost = insertionCost;
+          bestPos = pos;
+          bestUnvisitedIdx = i;
+        }
+      }
+    }
+
+    const nextIdx = unvisited.splice(bestUnvisitedIdx, 1)[0];
+    route.splice(bestPos, 0, nextIdx);
   }
 
   return route;
@@ -440,8 +587,15 @@ export function solveTSPWithMatrix(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Generate initial sequence of indices (1..validStops.length)
-  const initialIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix);
+  // Generate initial sequence of indices using Nearest Neighbor
+  const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix);
+  // Generate initial sequence of indices using Cheapest Insertion
+  const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, endAtStart);
+
+  // Compare distances to select the best start sequence indices
+  const nnDist = calculateMatrixRouteDistance(nnIndices, distanceMatrix, endAtStart);
+  const ciDist = calculateMatrixRouteDistance(ciIndices, distanceMatrix, endAtStart);
+  const initialIndices = nnDist <= ciDist ? nnIndices : ciIndices;
 
   // Improve sequence
   const optimizedIndices = optimizeTSPSequenceWithMatrix(initialIndices, distanceMatrix, endAtStart);
