@@ -65,7 +65,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                 </button>
 
                 {/* Panel Content */}
-                <div className={`w-full h-full flex flex-col bg-[#0f0f1a]/95 backdrop-blur-2xl border-l border-white/[0.06] shadow-2xl overflow-hidden transition-all duration-300 ${isDispatchOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div className={`w-full h-full flex flex-col bg-[#051024]/80 backdrop-blur-lg border-l border-white/[0.04] shadow-[0_0_50px_rgba(0,0,0,0.3)] overflow-hidden transition-all duration-300 ${isDispatchOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                     <div className="px-5 py-4 border-b border-white/[0.06] flex justify-between items-center bg-white/[0.02] shrink-0">
                         <div>
                             <h3 className="text-white text-[15px] font-bold leading-tight tracking-tight">
@@ -122,7 +122,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                             {selectedDriverForDetails?.totalClients ? Math.round(((selectedDriverForDetails.deliveredCount || 0) / selectedDriverForDetails.totalClients) * 100) : 0}%
                                         </span>
                                     </div>
-                                    <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                    <div className="w-full h-2 bg-white/[0.08] rounded-full overflow-hidden">
                                         <div
                                             className="h-full rounded-full transition-all duration-500 ease-out"
                                             style={{
@@ -194,7 +194,8 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                     <div 
                                         key={driver.driverName} 
                                         onClick={() => setSelectedDriverForDetails(driver)}
-                                        className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:bg-white/[0.08] hover:border-white/[0.1] transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                                        className="bg-white/[0.03] border border-white/[0.06] border-l-[3px] rounded-xl p-4 hover:bg-white/[0.08] hover:border-white/[0.1] transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                                        style={{ borderLeftColor: color }}
                                     >
                                         {/* Driver Header */}
                                         <div className="flex items-start justify-between mb-3">
@@ -211,7 +212,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                 </div>
                                             </div>
                                             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${sc.bg} border ${sc.border}`}>
-                                                <div className={`w-1.5 h-1.5 rounded-full ${sc.dot}`}></div>
+                                                <div className={`w-1.5 h-1.5 rounded-full ${sc.dot} ${driver.status === 'en_curso' ? 'animate-pulse' : ''}`}></div>
                                                 <span className={`text-[10px] font-bold ${sc.text}`}>{sc.label}</span>
                                             </div>
                                         </div>
@@ -241,7 +242,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                 </span>
                                                 <span className="text-gray-400 text-[10px] font-bold">{pct}%</span>
                                             </div>
-                                            <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                            <div className="w-full h-2 bg-white/[0.08] rounded-full overflow-hidden">
                                                 <div
                                                     className="h-full rounded-full transition-all duration-500 ease-out"
                                                     style={{

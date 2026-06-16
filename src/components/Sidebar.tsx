@@ -66,7 +66,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
 
   return (
     <aside
-      className={`fixed md:relative flex flex-col justify-between bg-[#051024] border-r border-white/10 shrink-0 transition-all duration-300 shadow-2xl z-50 h-screen 
+      className={`fixed md:relative flex flex-col justify-between bg-[#051024]/85 backdrop-blur-lg border-r border-white/[0.04] shrink-0 transition-all duration-300 shadow-2xl z-50 h-screen 
         ${isOpenMobile ? 'left-0' : 'left-[-100%] md:left-0'} 
         ${isCollapsed ? 'md:w-24' : 'md:w-64'} w-72`}
     >
@@ -85,17 +85,17 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar overflow-x-hidden">
 
         {/* Header / Logo Area */}
-        <div className="flex flex-col items-center px-4 py-6 border-b border-white/10 sticky top-0 bg-[#051024] z-10 transition-all duration-300">
+        <div className="flex flex-col items-center px-4 py-6 border-b border-white/[0.04] sticky top-0 bg-[#051024]/90 backdrop-blur-md z-10 transition-all duration-300">
           <div className="w-full flex flex-col items-center justify-center transition-all duration-300">
             {/* Always showing the logo image, scaled */}
             <img
               src="/LOGO2.jpg"
               alt="Healthy Dream Logo"
-              className={`object-cover rounded-full transition-all duration-300 shadow-md ${isCollapsed ? 'w-12 h-12' : 'w-16 h-16'}`}
+              className={`object-cover rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(255,255,255,0.05)] border border-white/10 ${isCollapsed ? 'w-12 h-12' : 'w-16 h-16'}`}
             />
             {/* Healthy Dream text, visible only when expanded */}
             {!isCollapsed && (
-              <h1 className="text-white text-xl font-black tracking-tighter mt-2 animate-in fade-in duration-300 text-center leading-none">
+              <h1 className="text-white text-xl font-black tracking-tighter mt-2.5 animate-in fade-in duration-300 text-center leading-none">
                 Healthy<br />Dream
               </h1>
             )}
@@ -129,13 +129,13 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
                       to={item.to}
                       className={({ isActive }) =>
                         `flex items-center justify-center w-full h-10 rounded-xl transition-all duration-200 group relative ${isActive
-                          ? 'bg-white/10 text-white shadow-inner border border-white/10'
+                          ? 'bg-blue-500/10 text-blue-200 border border-blue-500/20 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]'
                           : 'text-white/60 hover:bg-white/5 hover:text-white'
                         }`
                       }
                       title={item.label}
                     >
-                      <span className={`material-symbols-outlined text-[24px] transition-transform group-hover:scale-110 ${location.pathname === item.to ? 'text-blue-400' : ''}`}>
+                      <span className={`material-symbols-outlined text-[24px] transition-transform group-hover:scale-110 ${location.pathname === item.to ? 'text-blue-400' : 'text-gray-400 group-hover:text-white'}`}>
                         {item.icon}
                       </span>
                     </NavLink>
@@ -149,7 +149,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
               <div key={group.key} className="mb-2">
                 <button
                   onClick={() => toggleSection(group.key as keyof typeof sections)}
-                  className="w-full flex items-center justify-between px-2 py-2 text-[10px] font-bold uppercase text-white/40 hover:text-white/70 transition-colors mb-1 tracking-wider"
+                  className="w-full flex items-center justify-between px-2 py-2 text-[10px] font-black uppercase text-white/45 hover:text-white/80 transition-colors mb-1 tracking-widest"
                 >
                   {group.title}
                   <span className={`material-symbols-outlined text-[16px] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>
@@ -164,12 +164,12 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
                       to={item.to}
                       className={({ isActive }) =>
                         `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group text-sm ${isActive
-                          ? 'bg-white/10 text-white font-bold border border-white/20 shadow-inner'
+                          ? 'bg-blue-500/10 text-blue-200 font-semibold border border-blue-500/20 shadow-[inset_0_1px_2px_rgba(255,255,255,0.05)]'
                           : 'text-white/60 hover:bg-white/5 hover:text-white font-medium hover:translate-x-1'
                         }`
                       }
                     >
-                      <span className={`material-symbols-outlined text-[20px] transition-transform group-hover:scale-110 ${location.pathname === item.to ? 'text-blue-400' : ''}`}>
+                      <span className={`material-symbols-outlined text-[20px] transition-transform group-hover:scale-110 ${location.pathname === item.to ? 'text-blue-400' : 'text-gray-400 group-hover:text-white'}`}>
                         {item.icon}
                       </span>
                       <span className="truncate">{item.label}</span>
@@ -183,8 +183,8 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       </div>
 
       {/* Footer Area */}
-      <div className="p-3 bg-[#051024] border-t border-white/10">
-        <div className={`flex items-center gap-3 px-2 py-2 mb-2 rounded-xl bg-white/5 border border-white/5 ${isCollapsed ? 'justify-center' : ''}`}>
+      <div className="p-3 bg-[#051024]/90 backdrop-blur-md border-t border-white/[0.04]">
+        <div className={`flex items-center gap-3 px-2 py-2 mb-2 rounded-xl bg-white/5 border border-white/[0.05] ${isCollapsed ? 'justify-center' : ''}`}>
           <div className="h-9 w-9 min-w-[36px] rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md border border-white/20 cursor-default" title={userEmail || 'Usuario'}>
             {(userName || userEmail)?.substring(0, 2).toUpperCase()}
           </div>
@@ -199,7 +199,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
 
         <button
           onClick={handleLogout}
-          className={`flex items-center gap-2 justify-center w-full py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white text-xs font-bold uppercase tracking-wider transition-all border border-transparent hover:border-red-500/50 ${isCollapsed ? 'px-0' : ''}`}
+          className={`flex items-center gap-2 justify-center w-full py-2.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white hover:shadow-[0_0_15px_rgba(239,68,68,0.4)] text-xs font-bold uppercase tracking-wider transition-all border border-transparent hover:border-red-500/50 ${isCollapsed ? 'px-0' : ''}`}
           title="Cerrar Sesión"
         >
           <span className="material-symbols-outlined text-[18px]">logout</span>

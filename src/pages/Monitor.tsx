@@ -873,7 +873,7 @@ const FleetMonitor = () => {
             <div className="absolute top-6 left-6 z-[600] flex gap-4">
                 <button
                     onClick={() => setIsSidebarOpen(true)}
-                    className="h-12 px-4 bg-primary hover:bg-primary-hover text-white rounded-lg shadow-lg flex items-center gap-2 font-bold transition-transform active:scale-95 border border-white/10"
+                    className="h-12 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.3)] flex items-center gap-2.5 font-bold transition-all duration-200 hover:scale-105 active:scale-95 border border-white/10 backdrop-blur-md"
                 >
                     <span className="material-symbols-outlined">person_add</span>
                     <span className="hidden sm:inline">Nuevo Cliente</span>
@@ -882,15 +882,15 @@ const FleetMonitor = () => {
                 <div className="relative">
                     <button
                         onClick={() => setShowDriverStatus(!showDriverStatus)}
-                        className={`h-12 px-4 rounded-lg shadow-lg flex items-center gap-2 font-bold transition-colors border border-white/10 ${showDriverStatus ? 'bg-indigo-600 text-white' : 'bg-black/50 hover:bg-black/70 text-indigo-200'}`}
+                        className={`h-12 px-5 rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.3)] flex items-center gap-2.5 font-bold transition-all duration-200 hover:scale-105 active:scale-95 border border-white/10 backdrop-blur-md ${showDriverStatus ? 'bg-indigo-600 text-white shadow-indigo-500/20' : 'bg-black/40 hover:bg-black/60 text-indigo-200'}`}
                         title="Estatus de Repartidores"
                     >
                         <span className="material-symbols-outlined">groups</span>
                         <span className="hidden sm:inline">Repartidores</span>
                     </button>
                     {showDriverStatus && (
-                        <div className="absolute top-full left-0 mt-2 w-72 bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-2 z-[800]">
-                            <h3 className="text-white text-xs font-bold uppercase tracking-widest px-2 py-2 border-b border-white/10 mb-2">
+                        <div className="absolute top-full left-0 mt-2 w-72 bg-[#0a0a16]/90 backdrop-blur-xl border border-white/[0.06] rounded-2xl shadow-2xl p-3 z-[800] animate-in fade-in slide-in-from-top-2 duration-200">
+                            <h3 className="text-white text-xs font-bold uppercase tracking-widest px-1 py-1.5 border-b border-white/10 mb-2">
                                 Repartidores {selectedRoute === 'morning' ? '☀️ Matutina' : selectedRoute === 'evening' ? '🌙 Vespertina' : '(Todos)'}
                             </h3>
                             <div className="max-h-64 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
@@ -920,7 +920,7 @@ const FleetMonitor = () => {
 
             {/* Route Selector Buttons — Bottom Left */}
             <div className="absolute bottom-6 left-6 z-[600]">
-                <div className="p-1.5 rounded-xl flex items-center gap-1.5 shadow-2xl bg-[#1a1a2e]/90 backdrop-blur-xl border border-white/[0.08]">
+                <div className="p-1.5 rounded-full flex items-center gap-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] bg-[#051024]/85 backdrop-blur-lg border border-white/[0.04]">
                     <button
                         onClick={async () => {
                             const newRoute = selectedRoute === 'morning' ? null : 'morning';
@@ -956,9 +956,9 @@ const FleetMonitor = () => {
                                 setShowMyMap(false);
                             }
                         }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold text-sm ${selectedRoute === 'morning'
-                            ? 'bg-amber-500/20 border border-amber-400/30 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
-                            : 'bg-white/[0.04] border border-transparent text-gray-400 hover:bg-white/[0.08] hover:text-gray-200'}`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${selectedRoute === 'morning'
+                            ? 'bg-amber-500/25 border border-amber-500/30 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)] hover:scale-102'
+                            : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
                     >
                         <span className="text-base">☀️</span>
                         <span>Matutina</span>
@@ -998,9 +998,9 @@ const FleetMonitor = () => {
                                 setShowMyMap(false);
                             }
                         }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold text-sm ${selectedRoute === 'evening'
-                            ? 'bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 shadow-[0_0_12px_rgba(99,102,241,0.15)]'
-                            : 'bg-white/[0.04] border border-transparent text-gray-400 hover:bg-white/[0.08] hover:text-gray-200'}`}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${selectedRoute === 'evening'
+                            ? 'bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.25)] hover:scale-102'
+                            : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
                     >
                         <span className="text-base">🌙</span>
                         <span>Vespertina</span>
@@ -1010,10 +1010,10 @@ const FleetMonitor = () => {
                     <div className="w-px h-6 bg-white/10"></div>
                     <button
                         onClick={() => setShowTraffic(!showTraffic)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-200 font-semibold text-sm ${
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${
                             showTraffic
-                                ? 'bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                                : 'bg-white/[0.04] border border-transparent text-gray-400 hover:bg-white/[0.08] hover:text-gray-200'
+                                ? 'bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:scale-102'
+                                : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'
                         }`}
                         title="Mostrar/ocultar tráfico en tiempo real"
                     >
