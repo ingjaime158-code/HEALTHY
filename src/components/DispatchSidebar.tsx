@@ -65,7 +65,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                 </button>
 
                 {/* Panel Content */}
-                <div className={`w-full h-full flex flex-col bg-[#051024]/80 backdrop-blur-lg border-l border-white/[0.04] shadow-[0_0_50px_rgba(0,0,0,0.3)] overflow-hidden transition-all duration-300 ${isDispatchOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div className={`w-full h-full flex flex-col bg-[#0f0f1a] border-l border-white/10 shadow-2xl overflow-hidden transition-all duration-300 ${isDispatchOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                     <div className="px-5 py-4 border-b border-white/[0.06] flex justify-between items-center bg-white/[0.02] shrink-0">
                         <div>
                             <h3 className="text-white text-[15px] font-bold leading-tight tracking-tight">

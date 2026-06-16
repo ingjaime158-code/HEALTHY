@@ -66,7 +66,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
 
   return (
     <aside
-      className={`fixed md:relative flex flex-col justify-between bg-[#051024]/85 backdrop-blur-lg border-r border-white/[0.04] shrink-0 transition-all duration-300 shadow-2xl z-50 h-screen 
+      className={`fixed md:relative flex flex-col justify-between bg-[#051024] border-r border-white/10 shrink-0 transition-all duration-300 shadow-2xl z-50 h-screen 
         ${isOpenMobile ? 'left-0' : 'left-[-100%] md:left-0'} 
         ${isCollapsed ? 'md:w-24' : 'md:w-64'} w-72`}
     >
@@ -85,7 +85,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar overflow-x-hidden">
 
         {/* Header / Logo Area */}
-        <div className="flex flex-col items-center px-4 py-6 border-b border-white/[0.04] sticky top-0 bg-[#051024]/90 backdrop-blur-md z-10 transition-all duration-300">
+        <div className="flex flex-col items-center px-4 py-6 border-b border-white/10 sticky top-0 bg-[#051024] z-10 transition-all duration-300">
           <div className="w-full flex flex-col items-center justify-center transition-all duration-300">
             {/* Always showing the logo image, scaled */}
             <img
@@ -183,7 +183,7 @@ const Sidebar = ({ isOpenMobile, closeMobile }: { isOpenMobile?: boolean; closeM
       </div>
 
       {/* Footer Area */}
-      <div className="p-3 bg-[#051024]/90 backdrop-blur-md border-t border-white/[0.04]">
+      <div className="p-3 bg-[#051024] border-t border-white/10">
         <div className={`flex items-center gap-3 px-2 py-2 mb-2 rounded-xl bg-white/5 border border-white/[0.05] ${isCollapsed ? 'justify-center' : ''}`}>
           <div className="h-9 w-9 min-w-[36px] rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md border border-white/20 cursor-default" title={userEmail || 'Usuario'}>
             {(userName || userEmail)?.substring(0, 2).toUpperCase()}
