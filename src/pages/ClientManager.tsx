@@ -501,7 +501,6 @@ const ClientManager: React.FC = () => {
       await fetchClientsAndDrivers(true);
       
       showFeedbackToast(`✅ Secuencia guardada con éxito!`);
-      setIsOptimizeModalOpen(false);
     } catch (err) {
       console.error("Error saving optimized route order:", err);
       showFeedbackToast(`❌ Error al guardar la secuencia de ruta.`);
