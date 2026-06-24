@@ -10,3 +10,5 @@ export * from './api/marketplaceService';
 export * from './api/leadService';
 export * from './api/creditService';
 export * from './api/financeService';
+export * from './api/telemetryService';
+

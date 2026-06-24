@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBusinesses, updateBusiness, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin } from '../services/dataService';
+import { getBusinesses, updateBusiness, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin, saveRouteDistributionTelemetry } from '../services/dataService';
 import { pushToGoogleSheets, fetchClientsFromGoogleSheet, distributeRoutesToGoogleSheets } from '../services/googleSheetsService';
 import { solveTSP, solveTSPWithMatrix } from '../utils/routeOptimizer';
 declare const google: any;
@@ -1006,6 +1006,31 @@ const ClientManager: React.FC = () => {
       const success = await distributeRoutesToGoogleSheets(selectedRoute, distributions);
 
       if (success) {
+        // Save telemetry snapshot of client distribution
+        try {
+          const telemetryData = {
+            route_date: new Date().toLocaleDateString('sv-SE'),
+            route_type: selectedRoute,
+            clients_data: activeClientsForRoute.map(c => ({
+              id: c.id,
+              name: c.name,
+              lat: c.lat,
+              lng: c.lng,
+              driver: c.driver,
+              planType: c.planType,
+              tiempos: c.tiempos,
+              bags: c.plansCount,
+              routeOrder: c.routeOrder,
+              exclusions: c.exclusions,
+              siglas: c.siglas
+            }))
+          };
+          await saveRouteDistributionTelemetry(telemetryData);
+          console.log('[ClientManager] Telemetry snapshot saved successfully.');
+        } catch (telemetryErr) {
+          console.error('[ClientManager] Error saving telemetry snapshot:', telemetryErr);
+        }
+
         let feedbackMsg = `✅ ¡Hojas distribuidas con éxito! Actualizadas hojas de ${distributions.length} choferes.`;
         if (unconfiguredDrivers.length > 0) {
           feedbackMsg += ` (Ignorados: ${unconfiguredDrivers.join(', ')} por falta de hoja).`;
