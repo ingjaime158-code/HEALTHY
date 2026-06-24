@@ -251,7 +251,9 @@ const ClientManager: React.FC = () => {
       
       setLocalOptimizeStops(sortedStops);
     }
-  }, [isOptimizeModalOpen, selectedDriverForOptimize, parsedClients, selectedRoute]);
+    // Omit parsedClients to prevent overwriting the user's optimized sequence during saving/updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOptimizeModalOpen, selectedDriverForOptimize, selectedRoute]);
 
   const handleAutoOptimize = () => {
     if (localOptimizeStops.length === 0) return;
@@ -481,26 +483,101 @@ const ClientManager: React.FC = () => {
     try {
       showFeedbackToast(`💾 Guardando orden de entrega en Supabase...`);
       
-      const promises = localOptimizeStops.map((stop, index) => {
+      for (let index = 0; index < localOptimizeStops.length; index++) {
+        const stop = localOptimizeStops[index];
         const biz = dbClients.find(c => c.id === stop.id);
-        if (!biz) return Promise.resolve(true);
+        if (!biz) continue;
         
         const currentConfig = parseClientProfile(biz.email);
         currentConfig.routeOrder = index + 1; // 1-indexed
         const updatedEmail = JSON.stringify(currentConfig);
         
-        return updateBusiness({
+        const success = await updateBusiness({
           ...biz,
           email: updatedEmail
         });
-      });
-      
-      await Promise.all(promises);
+        
+        if (!success) {
+          console.warn(`[SaveRouteOrder] Failed to update client ${biz.name}. Retrying once...`);
+          const retrySuccess = await updateBusiness({
+            ...biz,
+            email: updatedEmail
+          });
+          if (!retrySuccess) {
+            throw new Error(`Error de conexión al actualizar el cliente "${biz.name}". Intenta de nuevo.`);
+          }
+        }
+      }
       
       // Refresh local store
       await fetchClientsAndDrivers(true);
       
-      showFeedbackToast(`✅ Secuencia guardada con éxito!`);
+      // Automatically distribute sheet for this driver
+      showFeedbackToast(`🚀 Actualizando hoja de cálculo de ${selectedDriverForOptimize}...`);
+      
+      const matchedDriverObj = systemDrivers.find(d => 
+        d.name.trim().toUpperCase() === selectedDriverForOptimize
+      );
+
+      const sheetUrl = selectedRoute === 'Matutina' 
+        ? matchedDriverObj?.morningSheetUrl 
+        : matchedDriverObj?.eveningSheetUrl;
+
+      const sheetId = extractSheetId(sheetUrl);
+
+      if (sheetId) {
+        // Map stops in localOptimizeStops to clients for distribution
+        const clientsForDistribution = localOptimizeStops.map((c, index) => ({
+          orden: index + 1,
+          name: c.name,
+          phone: c.phone || '',
+          address: c.location || '',
+          locationLink: c.locationLink || '',
+          coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
+          planType: c.planType || 'HEALTHY',
+          tiempos: c.tiempos || 1,
+          exclusions: c.exclusions || 'Ninguna',
+          bags: c.plansCount || 1
+        }));
+
+        const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
+          driverName: selectedDriverForOptimize,
+          sheetId,
+          clients: clientsForDistribution
+        }]);
+
+        if (distSuccess) {
+          // Also save telemetry for this specific driver update
+          try {
+            const telemetryData = {
+              route_date: new Date().toLocaleDateString('sv-SE'),
+              route_type: selectedRoute,
+              clients_data: clientsForDistribution.map((c, idx) => ({
+                id: localOptimizeStops[idx].id,
+                name: c.name,
+                lat: localOptimizeStops[idx].lat,
+                lng: localOptimizeStops[idx].lng,
+                driver: selectedDriverForOptimize,
+                planType: c.planType,
+                tiempos: c.tiempos,
+                bags: c.bags,
+                routeOrder: c.orden,
+                exclusions: c.exclusions,
+                siglas: localOptimizeStops[idx].siglas
+              }))
+            };
+            await saveRouteDistributionTelemetry(telemetryData);
+          } catch (telemetryErr) {
+            console.error('[ClientManager] Error saving individual telemetry snapshot:', telemetryErr);
+          }
+
+          showFeedbackToast(`✅ Secuencia guardada y hoja de ${selectedDriverForOptimize} actualizada con éxito!`);
+        } else {
+          showFeedbackToast(`⚠ Secuencia guardada en BD, pero falló la actualización de la hoja.`);
+        }
+      } else {
+        showFeedbackToast(`✅ Secuencia guardada en BD (Chofer sin hoja configurada).`);
+      }
     } catch (err) {
       console.error("Error saving optimized route order:", err);
       showFeedbackToast(`❌ Error al guardar la secuencia de ruta.`);
