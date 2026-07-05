@@ -59,21 +59,50 @@ const KmlOverlay = ({ kmlUrl }: KmlOverlayProps) => {
         const cacheBust = Math.floor(Date.now() / 300000);
         const finalUrl = `https://www.google.com/maps/d/kml?mid=${mid}&cb=${cacheBust}`;
 
-        console.log('[KmlOverlay] Loading KMZ:', finalUrl);
+        console.log('[KmlOverlay] Preparing KMZ layer:', finalUrl);
 
-        const kmlLayer = new google.maps.KmlLayer({
-            url: finalUrl,
-            map: map,
-            preserveViewport: true,
-            suppressInfoWindows: false, // Show info popups on click
+        let kmlLayer: google.maps.KmlLayer | null = null;
+        let isCleanedUp = false;
+
+        const loadLayer = () => {
+            if (isCleanedUp || kmlLayer) return;
+            console.log('[KmlOverlay] Instantiating KmlLayer...');
+            kmlLayer = new google.maps.KmlLayer({
+                url: finalUrl,
+                map: map,
+                preserveViewport: true,
+                suppressInfoWindows: false, // Show info popups on click
+            });
+
+            kmlLayer.addListener('status_changed', () => {
+                const status = kmlLayer?.getStatus();
+                console.log('[KmlOverlay] Status:', status);
+            });
+
+            layerRef.current = kmlLayer;
+        };
+
+        // Wait for the map to be fully loaded and settled before instantiating the KmlLayer.
+        // This solves the initial loading race condition when the map is not yet idle.
+        const listener = map.addListener('idle', () => {
+            loadLayer();
         });
 
-        kmlLayer.addListener('status_changed', () => {
-            const status = kmlLayer.getStatus();
-            console.log('[KmlOverlay] Status:', status);
-        });
+        // Fallback timeout in case 'idle' takes too long or doesn't fire
+        const timeoutId = setTimeout(() => {
+            loadLayer();
+        }, 1200);
 
-        layerRef.current = kmlLayer;
+        cleanupRef.current = () => {
+            isCleanedUp = true;
+            if (listener) {
+                google.maps.event.removeListener(listener);
+            }
+            clearTimeout(timeoutId);
+            if (kmlLayer) {
+                kmlLayer.setMap(null);
+            }
+        };
 
         return () => cleanup();
     }, [map, kmlUrl, cleanup]);

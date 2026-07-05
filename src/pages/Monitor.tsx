@@ -148,7 +148,7 @@ const FleetMonitor = () => {
     const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
 
     // --- Route Monitor State ---
-    const [selectedRoute, setSelectedRoute] = useState<'morning' | 'evening' | null>(null);
+    const [selectedRoute, setSelectedRoute] = useState<'morning' | 'evening' | null>('evening');
     const [routeDrivers, setRouteDrivers] = useState<DriverRouteInfo[]>([]);
     const [selectedDriverForDetails, setSelectedDriverForDetails] = useState<DriverRouteInfo | null>(null);
     const [loadingRoute, setLoadingRoute] = useState(false);
@@ -179,6 +179,46 @@ const FleetMonitor = () => {
     const calcWaitCost = (minutes: number, ratePerMin: number): number => {
         if (minutes <= 20 || ratePerMin <= 0) return 0;
         return parseFloat(((minutes - 20) * ratePerMin).toFixed(2));
+    };
+
+    const handleSelectRoute = async (route: 'morning' | 'evening' | null) => {
+        setSelectedRoute(route);
+        if (route) {
+            setLoadingRoute(true);
+            setIsDispatchOpen(true);
+            try {
+                const allMaps = await adminSelect('destinations');
+                const isMorning = route === 'morning';
+                const mapUrl = isMorning 
+                    ? allMaps?.find((m: any) => m.morning_map_url && m.morning_map_url.length > 5)?.morning_map_url
+                    : allMaps?.find((m: any) => m.evening_map_url && m.evening_map_url.length > 5)?.evening_map_url;
+                
+                if (mapUrl) {
+                    setMyMapUrl(mapUrl);
+                    setShowMyMap(true);
+                } else {
+                    setShowMyMap(false);
+                    setMyMapUrl(null);
+                }
+            } catch (e) {
+                console.error('[Monitor] Error al cargar mapa:', e);
+            }
+            
+            try {
+                const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
+                const sheetId = route === 'morning' ? MORNING_SHEET_ID : EVENING_SHEET_ID;
+                const gid = route === 'morning' ? MORNING_GID : EVENING_GID;
+                const progress = await buildDriverProgress(sheetId, gid, route, dbDrivers || []);
+                setRouteDrivers(progress);
+            } catch (e: any) {
+                console.error('[Monitor] Error obteniendo choferes:', e);
+                alert('Error al cargar la ruta: ' + e.message);
+            }
+            setLoadingRoute(false);
+        } else {
+            setRouteDrivers([]);
+            setShowMyMap(false);
+        }
     };
 
 
@@ -285,6 +325,30 @@ const FleetMonitor = () => {
                 setSelectedUnit(hdBase);
                 // Do NOT set manualBaseOverride=true so it won't auto-use as origin
             }
+
+            // Load Vespertina (evening) route by default on mount
+            setLoadingRoute(true);
+            setIsDispatchOpen(true);
+            try {
+                const mapEntry = fetchedDestinations?.find((m: any) => m.eveningMapUrl && m.eveningMapUrl.length > 5);
+                if (mapEntry) {
+                    setMyMapUrl(mapEntry.eveningMapUrl);
+                    setShowMyMap(true);
+                } else {
+                    setShowMyMap(false);
+                    setMyMapUrl(null);
+                }
+            } catch (e) {
+                console.error('[Monitor] Error al cargar mapa vespertino por defecto:', e);
+            }
+
+            try {
+                const progress = await buildDriverProgress(EVENING_SHEET_ID, EVENING_GID, 'evening', fetchedDrivers || []);
+                setRouteDrivers(progress);
+            } catch (e: any) {
+                console.error('[Monitor] Error obteniendo choferes vespertinos por defecto:', e);
+            }
+            setLoadingRoute(false);
         };
         loadData();
     }, []);
@@ -918,111 +982,6 @@ const FleetMonitor = () => {
                 </div>
             </div>
 
-            {/* Route Selector Buttons — Bottom Left */}
-            <div className="absolute bottom-6 left-6 z-[600]">
-                <div className="p-1.5 rounded-full flex items-center gap-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] bg-[#051024]/85 backdrop-blur-lg border border-white/[0.04]">
-                    <button
-                        onClick={async () => {
-                            const newRoute = selectedRoute === 'morning' ? null : 'morning';
-                            setSelectedRoute(newRoute);
-                            if (newRoute) {
-                                setLoadingRoute(true);
-                                setIsDispatchOpen(true);
-                                try {
-                                    const allMaps = await adminSelect('destinations');
-                                    const mapEntry = allMaps?.find((m: any) => m.morning_map_url && m.morning_map_url.length > 5);
-                                    if (mapEntry) {
-                                        setMyMapUrl(mapEntry.morning_map_url);
-                                        setShowMyMap(true);
-                                    } else {
-                                        setShowMyMap(false);
-                                        setMyMapUrl(null);
-                                    }
-                                } catch (e) {
-                                    console.error('[Monitor] Error al cargar mapa:', e);
-                                }
-                                
-                                try {
-                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
-                                    const progress = await buildDriverProgress(MORNING_SHEET_ID, MORNING_GID, 'morning', dbDrivers || []);
-                                    setRouteDrivers(progress);
-                                } catch (e: any) { 
-                                    console.error('[Monitor] Error obteniendo choferes:', e);
-                                    alert('Error al cargar la ruta: ' + e.message);
-                                }
-                                setLoadingRoute(false);
-                            } else {
-                                setRouteDrivers([]);
-                                setShowMyMap(false);
-                            }
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${selectedRoute === 'morning'
-                            ? 'bg-amber-500/25 border border-amber-500/30 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)] hover:scale-102'
-                            : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
-                    >
-                        <span className="text-base">☀️</span>
-                        <span>Matutina</span>
-                    </button>
-                    <button
-                        onClick={async () => {
-                            const newRoute = selectedRoute === 'evening' ? null : 'evening';
-                            setSelectedRoute(newRoute);
-                            if (newRoute) {
-                                setLoadingRoute(true);
-                                setIsDispatchOpen(true);
-                                try {
-                                    const allMaps = await adminSelect('destinations');
-                                    const mapEntry = allMaps?.find((m: any) => m.evening_map_url && m.evening_map_url.length > 5);
-                                    if (mapEntry) {
-                                        setMyMapUrl(mapEntry.evening_map_url);
-                                        setShowMyMap(true);
-                                    } else {
-                                        setShowMyMap(false);
-                                        setMyMapUrl(null);
-                                    }
-                                } catch (e) {
-                                    console.error('[Monitor] Error al cargar mapa:', e);
-                                }
-
-                                try {
-                                    const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
-                                    const progress = await buildDriverProgress(EVENING_SHEET_ID, EVENING_GID, 'evening', dbDrivers || []);
-                                    setRouteDrivers(progress);
-                                } catch (e: any) { 
-                                    console.error('[Monitor] Error obteniendo choferes:', e);
-                                    alert('Error al cargar la ruta: ' + e.message);
-                                }
-                                setLoadingRoute(false);
-                            } else {
-                                setRouteDrivers([]);
-                                setShowMyMap(false);
-                            }
-                        }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${selectedRoute === 'evening'
-                            ? 'bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.25)] hover:scale-102'
-                            : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
-                    >
-                        <span className="text-base">🌙</span>
-                        <span>Vespertina</span>
-                    </button>
-
-                    {/* Traffic Toggle */}
-                    <div className="w-px h-6 bg-white/10"></div>
-                    <button
-                        onClick={() => setShowTraffic(!showTraffic)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 font-semibold text-sm ${
-                            showTraffic
-                                ? 'bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:scale-102'
-                                : 'bg-transparent border border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                        }`}
-                        title="Mostrar/ocultar tráfico en tiempo real"
-                    >
-                        <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: showTraffic ? "'FILL' 1" : "'FILL' 0" }}>traffic</span>
-                        <span>Tráfico</span>
-                    </button>
-                </div>
-            </div>
-
             <DispatchSidebar 
                 isDispatchOpen={isDispatchOpen}
                 setIsDispatchOpen={setIsDispatchOpen}
@@ -1047,6 +1006,10 @@ const FleetMonitor = () => {
                 copiedClientTripId={copiedClientTripId}
                 copiedTripId={copiedTripId}
                 calcWaitCost={calcWaitCost}
+
+                handleSelectRoute={handleSelectRoute}
+                showTraffic={showTraffic}
+                setShowTraffic={setShowTraffic}
             />
         </div>
     );

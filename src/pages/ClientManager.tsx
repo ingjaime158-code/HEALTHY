@@ -64,6 +64,11 @@ const PACKAGE_SIGLAS: { [key: string]: string } = {
   'Ninguno': 'C' // Fallback
 };
 
+const removeAccents = (str: string): string => {
+  if (!str) return '';
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
+
 const ClientManager: React.FC = () => {
   const navigate = useNavigate();
   
@@ -1173,11 +1178,11 @@ const ClientManager: React.FC = () => {
 
       // Search match
       if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const nameMatch = (biz.name || '').toLowerCase().includes(query);
-        const addressMatch = (biz.location || '').toLowerCase().includes(query);
-        const planMatch = biz.planType.toLowerCase().includes(query);
-        const driverMatch = biz.driver.toLowerCase().includes(query);
+        const query = removeAccents(searchQuery.toLowerCase());
+        const nameMatch = removeAccents((biz.name || '').toLowerCase()).includes(query);
+        const addressMatch = removeAccents((biz.location || '').toLowerCase()).includes(query);
+        const planMatch = removeAccents(biz.planType.toLowerCase()).includes(query);
+        const driverMatch = removeAccents(biz.driver.toLowerCase()).includes(query);
         return nameMatch || addressMatch || planMatch || driverMatch;
       }
 

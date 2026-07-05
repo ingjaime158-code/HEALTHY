@@ -26,6 +26,10 @@ export interface DispatchSidebarProps {
     copiedClientTripId: string | null;
     copiedTripId: string | null;
     calcWaitCost: (minutes: number, ratePerMin: number) => number;
+
+    handleSelectRoute: (route: 'morning' | 'evening' | null) => Promise<void>;
+    showTraffic: boolean;
+    setShowTraffic: (show: boolean) => void;
 }
 
 const DRIVER_COLORS = [
@@ -40,7 +44,8 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     selectedMapTripId, setSelectedMapTripId,
     updateTrip, updateTripStatus,
     showToast, handleCopyClientLinkSidebar, handleCopyTrip,
-    copiedClientTripId, copiedTripId, calcWaitCost
+    copiedClientTripId, copiedTripId, calcWaitCost,
+    handleSelectRoute, showTraffic, setShowTraffic
 }) => {
     const [editingTripId, setEditingTripId] = useState<string | null>(null);
     const [editTripFields, setEditTripFields] = useState<{ clientName: string; driverId: string; waitTimeMinutes: number; waitTimeCost: number; cost: number; scheduledAt?: string }>({ clientName: '', driverId: '', waitTimeMinutes: 0, waitTimeCost: 0, cost: 0, scheduledAt: '' });
@@ -66,9 +71,9 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
 
                 {/* Panel Content */}
                 <div className={`w-full h-full flex flex-col bg-[#0f0f1a] border-l border-white/10 shadow-2xl overflow-hidden transition-all duration-300 ${isDispatchOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                    <div className="px-5 py-4 border-b border-white/[0.06] flex justify-between items-center bg-white/[0.02] shrink-0">
-                        <div>
-                            <h3 className="text-white text-[15px] font-bold leading-tight tracking-tight">
+                    <div className="px-5 py-4 border-b border-white/[0.06] flex justify-between items-center bg-white/[0.02] shrink-0 gap-3">
+                        <div className="min-w-0 flex-1">
+                            <h3 className="text-white text-[15px] font-bold leading-tight tracking-tight truncate">
                                 {selectedRoute === 'morning' ? '☀️ Ruta Matutina' : selectedRoute === 'evening' ? '🌙 Ruta Vespertina' : 'Monitor en Vivo'}
                             </h3>
                             <div className="flex items-center gap-1.5 mt-1">
@@ -76,12 +81,58 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
                                 </span>
-                                <span className="text-gray-500 text-[11px] font-medium">
+                                <span className="text-gray-500 text-[11px] font-medium truncate">
                                     {selectedRoute ? `${routeDrivers.length} Repartidores` : `Sistema En Línea • ${activeTrips.length} Activos`}
                                 </span>
                             </div>
                         </div>
-                        <button onClick={() => setIsDispatchOpen(false)} className="text-gray-500 hover:text-gray-300 p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors">
+
+                        {/* Route and Traffic Control Buttons */}
+                        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.06] p-1 rounded-xl shrink-0">
+                            {/* Sun (Matutina) */}
+                            <button
+                                onClick={() => handleSelectRoute(selectedRoute === 'morning' ? null : 'morning')}
+                                className={`p-1.5 rounded-lg transition-all duration-200 flex items-center justify-center cursor-pointer ${
+                                    selectedRoute === 'morning'
+                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.04] border border-transparent'
+                                }`}
+                                title="Ruta Matutina"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">light_mode</span>
+                            </button>
+
+                            {/* Moon (Vespertina) */}
+                            <button
+                                onClick={() => handleSelectRoute(selectedRoute === 'evening' ? null : 'evening')}
+                                className={`p-1.5 rounded-lg transition-all duration-200 flex items-center justify-center cursor-pointer ${
+                                    selectedRoute === 'evening'
+                                        ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.04] border border-transparent'
+                                }`}
+                                title="Ruta Vespertina"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">dark_mode</span>
+                            </button>
+
+                            {/* Divider */}
+                            <div className="w-px h-4 bg-white/10 mx-0.5"></div>
+
+                            {/* Traffic Layer */}
+                            <button
+                                onClick={() => setShowTraffic(!showTraffic)}
+                                className={`p-1.5 rounded-lg transition-all duration-200 flex items-center justify-center cursor-pointer ${
+                                    showTraffic
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.04] border border-transparent'
+                                }`}
+                                title="Mostrar Tráfico"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">traffic</span>
+                            </button>
+                        </div>
+
+                        <button onClick={() => setIsDispatchOpen(false)} className="text-gray-500 hover:text-gray-300 p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0">
                             <span className="material-symbols-outlined text-[18px]">close</span>
                         </button>
                     </div>
