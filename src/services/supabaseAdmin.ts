@@ -26,16 +26,35 @@ const getHeaders = () => {
  */
 export async function adminSelect(table: string, select = '*'): Promise<any[]> {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const url = `${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
-    const res = await fetch(url, { 
-        headers: getHeaders(),
-        cache: 'no-store'
-    });
-    if (!res.ok) {
-        console.error(`[adminSelect] ${table} error:`, res.status, await res.text());
-        return [];
+    const allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        const url = `${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+        const res = await fetch(url, { 
+            headers: {
+                ...getHeaders(),
+                'Range': `${from}-${to}`
+            },
+            cache: 'no-store'
+        });
+        if (!res.ok) {
+            console.error(`[adminSelect] ${table} error on page ${page}:`, res.status, await res.text());
+            break;
+        }
+        const data = await res.json();
+        allData.push(...data);
+        if (data.length < pageSize) {
+            hasMore = false;
+        } else {
+            page++;
+        }
     }
-    return res.json();
+    return allData;
 }
 
 /**
