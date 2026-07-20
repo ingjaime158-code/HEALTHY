@@ -51,12 +51,27 @@ function cleanAddress(addr) {
 }
 
 async function cleanDuplicates() {
-    console.log('🌌 [Healthy Dreams] Iniciando diagnóstico y limpieza segura de duplicados...');
+    console.log('🌌 [Healthy Dreams] Diagnosticando y limpiando duplicados...');
     
-    const { data: businesses, error } = await supabase.from('businesses').select('*');
-    if (error) {
-        console.error('❌ Error al obtener clientes de Supabase:', error.message);
-        return;
+    const businesses = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase.from('businesses').select('*').range(from, to);
+        if (error) {
+            console.error('❌ Error al obtener clientes de Supabase:', error.message);
+            return;
+        }
+        businesses.push(...data);
+        if (data.length < pageSize) {
+            hasMore = false;
+        } else {
+            page++;
+        }
     }
     
     console.log(`📊 Total de registros leídos en Supabase: ${businesses.length} clientes.`);
