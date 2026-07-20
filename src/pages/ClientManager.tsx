@@ -964,6 +964,11 @@ const ClientManager: React.FC = () => {
         const isActiveInDb = dbConfig.isActive !== false;
 
         if (isActiveInDb) {
+          // If the record was entered manually, do not deactivate it because it's not in Excel
+          if (dbConfig.isManual) {
+            continue;
+          }
+
           const strictDbName = dbc.name.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]/g, '').trim();
           
           if (!sheetActiveNamesStrict.has(strictDbName)) {

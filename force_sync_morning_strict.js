@@ -149,6 +149,10 @@ async function forceSyncStrict() {
         } catch (e) {}
         
         if (isActiveInDb) {
+            if (dbConfig.isManual) {
+                console.log(`ℹ️ Cliente manual "${dbc.name}" (ID: ${dbc.id}) se conserva activo.`);
+                continue;
+            }
             const strictDbName = normalizeNameStrict(dbc.name);
             
             // Comparación de igualdad exacta de caracteres

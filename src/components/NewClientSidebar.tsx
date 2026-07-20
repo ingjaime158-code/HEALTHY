@@ -664,7 +664,8 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                     extraDishes: combinedExtraDishes,
                                     tiempos: combinedTiempos,
                                     package: finalPackage,
-                                    plans: combinedPlans
+                                    plans: combinedPlans,
+                                    isManual: true
                                 };
                                 const emailJson = JSON.stringify(labelConfig);
 

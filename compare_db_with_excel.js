@@ -154,6 +154,15 @@ async function compare() {
     
     let diffCount = 0;
     dbActiveClients.forEach(dbc => {
+        let dbConfig = {};
+        try {
+            dbConfig = JSON.parse(dbc.email);
+        } catch(e){}
+        if (dbConfig.isManual) {
+            console.log(`ℹ️ Cliente manual: "${dbc.name}" (ID: ${dbc.id}) [Excluido de la comparación]`);
+            return;
+        }
+
         const normDbName = normalizeName(dbc.name);
         // Buscamos si existe coincidencia exacta o difusa en el set de nombres activos del Excel
         let matchFound = false;
@@ -170,7 +179,7 @@ async function compare() {
             console.log(`   ID: ${dbc.id}`);
             console.log(`   Nombre: "${dbc.name}"`);
             console.log(`   Dirección: "${dbc.location}"`);
-            console.log(`   Chofer: ${JSON.parse(dbc.email).driver}`);
+            console.log(`   Chofer: ${dbConfig.driver}`);
         }
     });
     

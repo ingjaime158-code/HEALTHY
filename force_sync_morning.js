@@ -159,6 +159,10 @@ async function forceSync() {
         } catch (e) {}
         
         if (isActiveInDb) {
+            if (dbConfig.isManual) {
+                console.log(`ℹ️ Cliente manual "${dbc.name}" (ID: ${dbc.id}) se conserva activo.`);
+                continue;
+            }
             const normDbName = normalizeName(dbc.name);
             
             // Buscar si coincide con alguno de los activos reales del Excel
