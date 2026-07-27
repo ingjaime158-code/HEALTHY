@@ -290,13 +290,47 @@ function calculateHaversineDistance(points: { lat: number; lng: number }[]): num
   for (let i = 0; i < points.length - 1; i++) {
     totalDistance += calcHaversineDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
   }
-  return parseFloat((totalDistance * 1.25).toFixed(2));
+  return parseFloat((totalDistance * 1.3).toFixed(2));
+}
+
+interface OSRMRouteData {
+  distanceKm: number;
+  legDurationsSec: number[];
+}
+
+async function calculateOSRMDrivingData(
+  points: { lat: number; lng: number }[]
+): Promise<OSRMRouteData | null> {
+  if (points.length < 2) return null;
+  try {
+    const coordinatesStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+    const url = `http://localhost:5000/route/v1/driving/${coordinatesStr}?overview=false`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.code === 'Ok' && data.routes && data.routes[0]) {
+      const route = data.routes[0];
+      const distanceKm = parseFloat((route.distance / 1000).toFixed(2));
+      const legDurationsSec = route.legs ? route.legs.map((leg: any) => leg.duration || 0) : [];
+      return { distanceKm, legDurationsSec };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[routeMonitor] OSRM routing failed, will fallback to Google Maps/Haversine:', err);
+    return null;
+  }
 }
 
 export async function calculateGoogleDrivingDistance(
   points: { lat: number; lng: number }[]
 ): Promise<number> {
   if (points.length < 2) return 0;
+
+  // Try local OSRM first
+  const osrmData = await calculateOSRMDrivingData(points);
+  if (osrmData !== null) {
+    return osrmData.distanceKm;
+  }
 
   if (typeof google === 'undefined' || !google.maps) {
     console.warn('[routeMonitor] Google Maps JavaScript API not loaded. Using Haversine.');
@@ -410,10 +444,17 @@ export async function calculateRouteETAs(
     return new Array(clients.length).fill(0);
   }
 
-  const legDurationsSec: number[] = new Array(points.length - 1).fill(0);
-  let googleSuccess = false;
+  let legDurationsSec: number[] = new Array(points.length - 1).fill(0);
+  let routeSuccess = false;
 
-  if (typeof google !== 'undefined' && google.maps) {
+  // Try local OSRM first
+  const osrmData = await calculateOSRMDrivingData(points);
+  if (osrmData !== null && osrmData.legDurationsSec.length > 0) {
+    legDurationsSec = osrmData.legDurationsSec;
+    routeSuccess = true;
+  }
+
+  if (!routeSuccess && typeof google !== 'undefined' && google.maps) {
     try {
       const directionsService = new google.maps.DirectionsService();
       const maxSegmentSize = 25;
@@ -459,7 +500,7 @@ export async function calculateRouteETAs(
               }
             }
           }
-          googleSuccess = true;
+          routeSuccess = true;
         }
       }
     } catch (err) {
@@ -467,10 +508,10 @@ export async function calculateRouteETAs(
     }
   }
 
-  if (!googleSuccess) {
+  if (!routeSuccess) {
     for (let i = 0; i < points.length - 1; i++) {
       const dist = calcHaversineDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
-      const estimatedDist = dist * 1.25;
+      const estimatedDist = dist * 1.3;
       legDurationsSec[i] = (estimatedDist / 30) * 3600;
     }
   }
