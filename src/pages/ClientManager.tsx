@@ -143,6 +143,7 @@ const ClientManager: React.FC = () => {
   const [selectedDriverForOptimize, setSelectedDriverForOptimize] = useState<string>('');
   const [localOptimizeStops, setLocalOptimizeStops] = useState<any[]>([]);
   const [isSavingRouteOrder, setIsSavingRouteOrder] = useState<boolean>(false);
+  const [isOptimizingAll, setIsOptimizingAll] = useState<boolean>(false);
 
   // Auto-sort by routeOrder when a single driver is selected
   useEffect(() => {
@@ -463,6 +464,211 @@ const ClientManager: React.FC = () => {
       console.error("OSRM optimization failed:", err);
       showFeedbackToast(`❌ Docker OSRM offline. Ejecuta 'docker-compose up -d' en el puerto 5000.`);
     } finally {
+      setIsSavingRouteOrder(false);
+    }
+  };
+
+  const handleOptimizeAndDistributeAll = async () => {
+    if (activeDriversForRoute.length === 0) {
+      showFeedbackToast(`❌ No hay repartidores con clientes activos en la ruta ${selectedRoute}.`);
+      return;
+    }
+
+    setIsOptimizingAll(true);
+    setIsSavingRouteOrder(true);
+    showFeedbackToast(`🚀 Iniciando optimización masiva en Docker para ${activeDriversForRoute.length} choferes...`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      for (let dIdx = 0; dIdx < activeDriversForRoute.length; dIdx++) {
+        const driverName = activeDriversForRoute[dIdx];
+        showFeedbackToast(`⚡ [${dIdx + 1}/${activeDriversForRoute.length}] Optimizando ruta en Docker para ${driverName}...`);
+
+        // 1. Get driver stops from parsedClients
+        const driverStops = parsedClients.filter(c => 
+          c.routeType === selectedRoute && 
+          c.isActive && 
+          c.driver.trim().toUpperCase() === driverName
+        );
+
+        const sortedStops = [...driverStops].sort((a, b) => {
+          const orderA = a.routeOrder !== undefined ? a.routeOrder : 9999;
+          const orderB = b.routeOrder !== undefined ? b.routeOrder : 9999;
+          return orderA - orderB;
+        });
+
+        if (sortedStops.length === 0) {
+          continue;
+        }
+
+        // 2. Separate valid & invalid stops
+        const validStops = sortedStops.filter(
+          s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0
+        );
+        const invalidStops = sortedStops.filter(
+          s => !s.lat || !s.lng || isNaN(s.lat) || isNaN(s.lng) || s.lat === 0 || s.lng === 0
+        );
+
+        let newStops = [...sortedStops];
+
+        if (validStops.length > 0) {
+          try {
+            const points = [
+              { lat: selectedOriginCoords.lat, lng: selectedOriginCoords.lng },
+              ...validStops.map(s => ({ lat: s.lat, lng: s.lng }))
+            ];
+
+            const coordinatesStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+            const url = `http://localhost:5000/table/v1/driving/${coordinatesStr}?annotations=distance`;
+
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' },
+              mode: 'cors'
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.code !== 'Ok' || !data.distances) {
+              throw new Error(`OSRM returned code: ${data.code}`);
+            }
+
+            const distanceMatrix = data.distances as number[][];
+
+            const { route: optimizedRoute } = solveTSPWithMatrix(
+              validStops.map(s => ({
+                id: s.id,
+                name: s.name,
+                lat: s.lat,
+                lng: s.lng
+              })),
+              distanceMatrix,
+              isClosedRoute
+            );
+
+            newStops = [
+              ...optimizedRoute.map(r => validStops.find(s => s.id === r.id)).filter(Boolean),
+              ...invalidStops
+            ];
+          } catch (osrmErr: any) {
+            console.error(`OSRM optimization failed for ${driverName}:`, osrmErr);
+            showFeedbackToast(`❌ Docker OSRM offline. Ejecuta 'docker-compose up -d' en el puerto 5000.`);
+            failCount++;
+            await new Promise(r => setTimeout(r, 600));
+            continue;
+          }
+        }
+
+        // 3. Save sequence order in Supabase
+        showFeedbackToast(`💾 [${dIdx + 1}/${activeDriversForRoute.length}] Guardando secuencia de ${driverName}...`);
+        for (let index = 0; index < newStops.length; index++) {
+          const stop = newStops[index];
+          const biz = dbClients.find(c => c.id === stop.id);
+          if (!biz) continue;
+
+          const currentConfig = parseClientProfile(biz.email);
+          currentConfig.routeOrder = index + 1;
+          const updatedEmail = JSON.stringify(currentConfig);
+
+          const success = await updateBusiness({
+            ...biz,
+            email: updatedEmail
+          });
+
+          if (!success) {
+            await updateBusiness({
+              ...biz,
+              email: updatedEmail
+            });
+          }
+        }
+
+        // 4. Distribute sequence to driver's Google Sheet
+        showFeedbackToast(`🚀 [${dIdx + 1}/${activeDriversForRoute.length}] Actualizando hoja de ${driverName}...`);
+        
+        const matchedDriverObj = systemDrivers.find(d => 
+          d.name.trim().toUpperCase() === driverName
+        );
+
+        const sheetUrl = selectedRoute === 'Matutina' 
+          ? matchedDriverObj?.morningSheetUrl 
+          : matchedDriverObj?.eveningSheetUrl;
+
+        const sheetId = extractSheetId(sheetUrl);
+
+        if (sheetId) {
+          const clientsForDistribution = newStops.map((c, index) => ({
+            orden: index + 1,
+            name: c.name,
+            phone: c.phone || '',
+            address: c.location || '',
+            locationLink: c.locationLink || '',
+            coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
+            planType: c.planType || 'HEALTHY',
+            tiempos: c.tiempos || 1,
+            exclusions: c.exclusions || 'Ninguna',
+            bags: c.plansCount || 1
+          }));
+
+          const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
+            driverName: driverName,
+            sheetId,
+            clients: clientsForDistribution
+          }]);
+
+          if (distSuccess) {
+            try {
+              const telemetryData = {
+                route_date: new Date().toLocaleDateString('sv-SE'),
+                route_type: selectedRoute,
+                clients_data: clientsForDistribution.map((c, idx) => ({
+                  id: newStops[idx].id,
+                  name: c.name,
+                  lat: newStops[idx].lat,
+                  lng: newStops[idx].lng,
+                  driver: driverName,
+                  planType: c.planType,
+                  tiempos: c.tiempos,
+                  bags: c.bags,
+                  routeOrder: c.orden,
+                  exclusions: c.exclusions,
+                  siglas: newStops[idx].siglas
+                }))
+              };
+              await saveRouteDistributionTelemetry(telemetryData);
+            } catch (telemetryErr) {
+              console.error('[ClientManager] Error saving individual telemetry snapshot:', telemetryErr);
+            }
+          }
+        }
+
+        if (selectedDriverForOptimize === driverName) {
+          setLocalOptimizeStops(newStops);
+        }
+
+        successCount++;
+
+        // Margen de tiempo entre optimizaciones/distribuciones
+        await new Promise(r => setTimeout(r, 600));
+      }
+
+      await fetchClientsAndDrivers(true);
+
+      if (failCount === 0) {
+        showFeedbackToast(`✅ ¡Proceso completado! Se optimizaron en Docker y distribuyeron ${successCount} rutas con éxito.`);
+      } else {
+        showFeedbackToast(`⚠️ Finalizado: ${successCount} rutas distribuidas, ${failCount} fallaron.`);
+      }
+    } catch (err: any) {
+      console.error("Error in batch optimization & distribution:", err);
+      showFeedbackToast(`❌ Ocurrió un error durante la optimización masiva.`);
+    } finally {
+      setIsOptimizingAll(false);
       setIsSavingRouteOrder(false);
     }
   };
@@ -2341,12 +2547,12 @@ const ClientManager: React.FC = () => {
               {/* Optimization Methods Card Group */}
               <div className="space-y-2">
                 <label className="block text-[8px] font-black uppercase tracking-widest text-white/50">⚡ Métodos de Optimización de Ruta</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   {/* Local Heuristic */}
                   <button
                     type="button"
                     onClick={handleAutoOptimize}
-                    disabled={localOptimizeStops.length === 0}
+                    disabled={localOptimizeStops.length === 0 || isOptimizingAll || isSavingRouteOrder}
                     className="p-3 bg-white/5 border border-white/10 hover:bg-blue-600/10 hover:border-blue-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
                   >
                     <div className="flex items-center gap-1.5 text-blue-400 font-black text-[10px] uppercase tracking-wider">
@@ -2360,7 +2566,7 @@ const ClientManager: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleGoogleMapsOptimize}
-                    disabled={localOptimizeStops.length === 0 || localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23}
+                    disabled={isOptimizingAll || isSavingRouteOrder || localOptimizeStops.length === 0 || localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23}
                     className="p-3 bg-white/5 border border-white/10 hover:bg-emerald-600/10 hover:border-emerald-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
                     title={localOptimizeStops.filter(s => s.lat && s.lng && !isNaN(s.lat) && !isNaN(s.lng) && s.lat !== 0 && s.lng !== 0).length > 23 ? "Máximo 23 paradas para Google Maps" : "Optimizar con tráfico real"}
                   >
@@ -2379,7 +2585,7 @@ const ClientManager: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleOsrmOptimize}
-                    disabled={localOptimizeStops.length === 0}
+                    disabled={localOptimizeStops.length === 0 || isOptimizingAll || isSavingRouteOrder}
                     className="p-3 bg-white/5 border border-white/10 hover:bg-purple-600/10 hover:border-purple-500/40 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer"
                   >
                     <div className="flex items-center gap-1.5 text-purple-400 font-black text-[10px] uppercase tracking-wider">
@@ -2387,6 +2593,27 @@ const ClientManager: React.FC = () => {
                       OSRM (Docker)
                     </div>
                     <span className="text-[9px] font-semibold text-white/50 leading-tight">Callejero local gratuito e ilimitado (computadora del usuario en puerto 5000).</span>
+                  </button>
+
+                  {/* Batch Docker Optimization */}
+                  <button
+                    type="button"
+                    onClick={handleOptimizeAndDistributeAll}
+                    disabled={activeDriversForRoute.length === 0 || isOptimizingAll || isSavingRouteOrder}
+                    className="p-3 bg-gradient-to-br from-purple-900/40 via-indigo-900/40 to-blue-900/40 border border-purple-500/40 hover:border-purple-400/60 hover:bg-purple-600/20 text-white rounded-xl text-left transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed group flex flex-col gap-1 cursor-pointer relative overflow-hidden shadow-lg shadow-purple-900/20"
+                    title="Optimiza con OSRM (Docker) y aplica la secuencia a las hojas de TODOS los choferes automáticamente"
+                  >
+                    <div className="flex items-center gap-1.5 text-amber-400 font-black text-[10px] uppercase tracking-wider">
+                      <span className={`material-symbols-outlined text-[16px] text-amber-400 ${isOptimizingAll ? 'animate-spin' : ''}`}>
+                        {isOptimizingAll ? 'sync' : 'bolt'}
+                      </span>
+                      Optimizar y Distribuir Todo
+                    </div>
+                    <span className="text-[9px] font-semibold text-purple-200/70 leading-tight">
+                      {isOptimizingAll 
+                        ? "Optimizando y distribuyendo todas las rutas..." 
+                        : `Optimiza con Docker y distribuye a todos los repartidores (${activeDriversForRoute.length}) en 1-click.`}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -2448,7 +2675,7 @@ const ClientManager: React.FC = () => {
                             {/* Manual Reordering Controls */}
                             <button
                               onClick={() => handleMoveStop(index, 'up')}
-                              disabled={index === 0}
+                              disabled={index === 0 || isOptimizingAll || isSavingRouteOrder}
                               className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all disabled:opacity-20"
                             >
                               <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
@@ -2456,7 +2683,7 @@ const ClientManager: React.FC = () => {
 
                             <button
                               onClick={() => handleMoveStop(index, 'down')}
-                              disabled={index === localOptimizeStops.length - 1}
+                              disabled={index === localOptimizeStops.length - 1 || isOptimizingAll || isSavingRouteOrder}
                               className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all disabled:opacity-20"
                             >
                               <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
@@ -2472,24 +2699,42 @@ const ClientManager: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-6 border-t border-white/10 bg-white/2 flex items-center justify-end gap-3 shrink-0">
+            <div className="p-6 border-t border-white/10 bg-white/2 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsOptimizeModalOpen(false)}
-                className="px-5 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+                disabled={isOptimizingAll || isSavingRouteOrder}
+                className="w-full sm:w-auto px-5 py-2 bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all disabled:opacity-50"
               >
                 Cancelar
               </button>
               
-              <button
-                type="button"
-                onClick={handleSaveRouteOrder}
-                disabled={localOptimizeStops.length === 0 || isSavingRouteOrder}
-                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/10 hover:shadow-blue-600/25 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined text-[15px]">{isSavingRouteOrder ? 'sync' : 'save'}</span>
-                {isSavingRouteOrder ? 'Guardando...' : 'Aplicar Secuencia'}
-              </button>
+              <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleOptimizeAndDistributeAll}
+                  disabled={activeDriversForRoute.length === 0 || isOptimizingAll || isSavingRouteOrder}
+                  className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-lg shadow-purple-600/20 hover:shadow-purple-600/35 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Optimizar con OSRM (Docker) y aplicar secuencia a las hojas de TODOS los repartidores"
+                >
+                  <span className={`material-symbols-outlined text-[15px] ${isOptimizingAll ? 'animate-spin' : ''}`}>
+                    {isOptimizingAll ? 'sync' : 'bolt'}
+                  </span>
+                  {isOptimizingAll ? 'Optimizando Todo...' : 'Optimizar y Distribuir Todo'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveRouteOrder}
+                  disabled={localOptimizeStops.length === 0 || isSavingRouteOrder || isOptimizingAll}
+                  className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/10 hover:shadow-blue-600/25 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <span className={`material-symbols-outlined text-[15px] ${isSavingRouteOrder && !isOptimizingAll ? 'animate-spin' : ''}`}>
+                    {isSavingRouteOrder && !isOptimizingAll ? 'sync' : 'save'}
+                  </span>
+                  {isSavingRouteOrder && !isOptimizingAll ? 'Guardando...' : 'Aplicar Secuencia'}
+                </button>
+              </div>
             </div>
 
           </div>
