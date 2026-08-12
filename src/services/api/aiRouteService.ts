@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { getHaversineDistance, calculateRouteDistance, nearestNeighborTSP } from '../../utils/routeOptimizer';
+import { getHaversineDistance, solveTSPWithMatrix } from '../../utils/routeOptimizer';
 
 export interface DriverRouteSuggestion {
   driverName: string;
@@ -17,6 +17,7 @@ export interface AISuggestionResult {
   totalClients: number;
   insights: string[];
   analyzedSnapshotsCount: number;
+  osrmSource: 'osrm-local' | 'osrm-remote' | 'haversine';
 }
 
 const DRIVER_PALETTE = [
@@ -55,7 +56,78 @@ export async function fetchTelemetryHistory(limit = 200): Promise<any[]> {
 }
 
 /**
- * Generates an AI-driven smart route distribution suggestion with STRICT WORKLOAD BALANCING & REAL GEO CLUSTERING.
+ * Fetches real driving distance and duration matrices from local OSRM Docker container (or remote fallback).
+ */
+export async function fetchOSRMTableMatrix(points: Array<{ lat: number; lng: number }>): Promise<{
+  distances: number[][];
+  durations: number[][];
+  source: 'osrm-local' | 'osrm-remote' | 'haversine';
+}> {
+  if (!points || points.length === 0) {
+    return { distances: [], durations: [], source: 'haversine' };
+  }
+
+  const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+  const localUrl = `http://localhost:5000/table/v1/driving/${coordsStr}?annotations=distance,duration`;
+  const remoteUrl = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=distance,duration`;
+
+  // 1. Try local Docker OSRM first
+  try {
+    const res = await fetch(localUrl, { method: 'GET', mode: 'cors' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 'Ok' && data.distances) {
+        return {
+          distances: data.distances,
+          durations: data.durations || [],
+          source: 'osrm-local'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[AIRouteService] Local OSRM Docker offline, trying remote OSRM...', err);
+  }
+
+  // 2. Try remote OSRM fallback
+  try {
+    const res = await fetch(remoteUrl, { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === 'Ok' && data.distances) {
+        return {
+          distances: data.distances,
+          durations: data.durations || [],
+          source: 'osrm-remote'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[AIRouteService] Remote OSRM unavailable, falling back to Haversine...', err);
+  }
+
+  // 3. Fallback to Haversine distance matrix
+  const n = points.length;
+  const distances: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
+  const durations: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) {
+        distances[i][j] = 0;
+        durations[i][j] = 0;
+      } else {
+        const d = getHaversineDistance(points[i].lat, points[i].lng, points[j].lat, points[j].lng);
+        distances[i][j] = d;
+        durations[i][j] = (d / 1000 / 30) * 3600;
+      }
+    }
+  }
+
+  return { distances, durations, source: 'haversine' };
+}
+
+/**
+ * Generates an AI-driven smart route distribution suggestion using OSRM STREET MAP (DOCKER) + WORKLOAD BALANCING.
  */
 export async function generateAISmartDistribution(params: {
   clients: any[];
@@ -66,7 +138,7 @@ export async function generateAISmartDistribution(params: {
   customFeedback?: string;
 }): Promise<AISuggestionResult> {
   const { clients, activeDrivers, routeType, customFeedback } = params;
-  const baseLat = params.startLat || 25.7819168; // Base principal (Apodaca/Guadalupe)
+  const baseLat = params.startLat || 25.7819168; // Base Apodaca/Guadalupe
   const baseLng = params.startLng || -100.191302;
 
   if (!clients || clients.length === 0 || !activeDrivers || activeDrivers.length === 0) {
@@ -75,7 +147,8 @@ export async function generateAISmartDistribution(params: {
       overallConfidence: 0,
       totalClients: 0,
       insights: ['No hay clientes o repartidores activos seleccionados.'],
-      analyzedSnapshotsCount: 0
+      analyzedSnapshotsCount: 0,
+      osrmSource: 'haversine'
     };
   }
 
@@ -99,7 +172,6 @@ export async function generateAISmartDistribution(params: {
   });
 
   // 3. Parse custom feedback if user provided adjustments
-  // E.g. "Mover Pedro a Tony", "Pasar Juan a Brayan"
   const manualOverrides: Record<string, string> = {};
   if (customFeedback && customFeedback.trim()) {
     const feedbackLower = customFeedback.toLowerCase();
@@ -114,10 +186,9 @@ export async function generateAISmartDistribution(params: {
     });
   }
 
-  // 4. Calculate target average capacity per driver to avoid 29 vs 11 imbalance
+  // 4. Capacity planning: balance workload
   const totalClientCount = clients.length;
   const targetPerDriver = Math.ceil(totalClientCount / activeDrivers.length);
-  // Strict upper cap per driver (target + 2 max)
   const maxAllowedPerDriver = Math.max(targetPerDriver + 2, Math.floor(totalClientCount / activeDrivers.length) + 2);
 
   const driverBuckets: Record<string, any[]> = {};
@@ -125,11 +196,10 @@ export async function generateAISmartDistribution(params: {
   const unassigned: any[] = [];
   let historicalMatchesCount = 0;
 
-  // 5. Candidate historical assignment
+  // 5. Initial historical assignment
   clients.forEach(client => {
     const clientKey = (client.name || client.id || '').trim().toLowerCase();
 
-    // Check manual override first
     if (manualOverrides[client.id]) {
       const targetDriver = manualOverrides[client.id];
       if (driverBuckets[targetDriver]) {
@@ -138,7 +208,6 @@ export async function generateAISmartDistribution(params: {
       }
     }
 
-    // Check historical affinity
     const driverFreqs = affinityMap[clientKey];
     let bestDriver = '';
     let maxFreq = 0;
@@ -154,7 +223,6 @@ export async function generateAISmartDistribution(params: {
       });
     }
 
-    // Assign to historical driver if available
     if (bestDriver && (maxFreq >= 2 || (maxFreq / totalFreq) >= 0.5)) {
       driverBuckets[bestDriver].push(client);
       historicalMatchesCount++;
@@ -167,7 +235,6 @@ export async function generateAISmartDistribution(params: {
   activeDrivers.forEach(d => {
     const currentList = driverBuckets[d];
     if (currentList.length > maxAllowedPerDriver) {
-      // Calculate cluster centroid of driver
       let avgLat = 0, avgLng = 0;
       currentList.forEach(c => {
         avgLat += Number(c.lat) || baseLat;
@@ -176,14 +243,12 @@ export async function generateAISmartDistribution(params: {
       avgLat /= currentList.length;
       avgLng /= currentList.length;
 
-      // Sort by distance to centroid (keep closest ones, move furthest ones to unassigned)
       currentList.sort((a, b) => {
         const distA = getHaversineDistance(avgLat, avgLng, Number(a.lat) || baseLat, Number(a.lng) || baseLng);
         const distB = getHaversineDistance(avgLat, avgLng, Number(b.lat) || baseLat, Number(b.lng) || baseLng);
         return distA - distB;
       });
 
-      // Keep closest maxAllowedPerDriver, move rest to unassigned
       const overflow = currentList.splice(maxAllowedPerDriver);
       unassigned.push(...overflow);
     }
@@ -200,7 +265,6 @@ export async function generateAISmartDistribution(params: {
     activeDrivers.forEach(d => {
       const currentList = driverBuckets[d];
       
-      // Calculate geographic distance to driver's cluster
       let dist = 0;
       if (currentList.length === 0) {
         dist = getHaversineDistance(baseLat, baseLng, cLat, cLng);
@@ -212,9 +276,8 @@ export async function generateAISmartDistribution(params: {
         dist = sumDist / currentList.length;
       }
 
-      // Strong capacity penalty to enforce even distribution
       const loadRatio = currentList.length / targetPerDriver;
-      const penalty = Math.pow(loadRatio, 2.5); // Exponential penalty when approaching/exceeding capacity
+      const penalty = Math.pow(loadRatio, 2.5);
       const score = dist * (1 + penalty);
 
       if (score < minScore) {
@@ -226,8 +289,8 @@ export async function generateAISmartDistribution(params: {
     driverBuckets[bestDriver].push(client);
   });
 
-  // 8. TSP Route Sequence Optimization & Metrics calculation per driver
-  const driverRoutes: DriverRouteSuggestion[] = activeDrivers.map((driverName, idx) => {
+  // 8. OSRM STREET NAVIGATION TSP OPTIMIZATION PER DRIVER
+  const driverRoutesPromises = activeDrivers.map(async (driverName, idx) => {
     const assignedClients = driverBuckets[driverName] || [];
     const color = DRIVER_PALETTE[idx % DRIVER_PALETTE.length];
 
@@ -243,7 +306,22 @@ export async function generateAISmartDistribution(params: {
       };
     }
 
-    // Convert to TSPLocations
+    // Prepare OSRM points list: [Base Depot, Stop 1, Stop 2, ...]
+    const osrmPoints = [
+      { lat: baseLat, lng: baseLng },
+      ...assignedClients.map(c => ({
+        lat: Number(c.lat) || baseLat,
+        lng: Number(c.lng) || baseLng
+      }))
+    ];
+
+    // Query OSRM table matrix (local Docker or remote)
+    const osrmMatrix = await fetchOSRMTableMatrix(osrmPoints);
+    if (osrmMatrix.source !== 'haversine') {
+      overallOSRMSource = osrmMatrix.source;
+    }
+
+    // Run TSP Solver with OSRM street distance matrix
     const tspStops = assignedClients.map(c => ({
       id: c.id,
       name: c.name,
@@ -252,16 +330,33 @@ export async function generateAISmartDistribution(params: {
       rawClient: c
     }));
 
-    // Optimize sequence starting from depot/base
-    const orderedTsp = nearestNeighborTSP(tspStops, baseLat, baseLng);
+    const { route: optimizedTspStops } = solveTSPWithMatrix(
+      tspStops,
+      osrmMatrix.distances,
+      false
+    );
 
-    // Calculate distance & time
-    const distMeters = calculateRouteDistance(orderedTsp, baseLat, baseLng, false);
-    const distKm = Math.round((distMeters / 1000) * 10) / 10;
-    
-    // Time estimation: 30 km/h average city speed + 8 mins per delivery stop
-    const travelTimeMin = Math.round((distKm / 30) * 60);
-    const stopTimeMin = assignedClients.length * 8;
+    // Calculate exact OSRM driving distance and travel duration
+    let totalDistMeters = 0;
+    let totalTravelSec = 0;
+
+    if (osrmMatrix.distances && osrmMatrix.distances.length > 0) {
+      // Create a map from stop ID to matrix index (Base is index 0)
+      const stopIndexMap: Record<string, number> = {};
+      tspStops.forEach((s, i) => { stopIndexMap[s.id] = i + 1; });
+
+      let currentMatrixIdx = 0; // Starts at Base (0)
+      for (const stop of optimizedTspStops) {
+        const nextMatrixIdx = stopIndexMap[stop.id] || 0;
+        totalDistMeters += osrmMatrix.distances[currentMatrixIdx]?.[nextMatrixIdx] ?? 0;
+        totalTravelSec += osrmMatrix.durations[currentMatrixIdx]?.[nextMatrixIdx] ?? 0;
+        currentMatrixIdx = nextMatrixIdx;
+      }
+    }
+
+    const distKm = Math.round((totalDistMeters / 1000) * 10) / 10 || Math.round((calculateRouteDistance(optimizedTspStops, baseLat, baseLng, false) / 1000) * 10) / 10;
+    const travelTimeMin = Math.round(totalTravelSec / 60) || Math.round((distKm / 30) * 60);
+    const stopTimeMin = assignedClients.length * 8; // 8 mins per delivery stop
     const estTimeMin = travelTimeMin + stopTimeMin;
 
     // Calculate driver historical confidence match ratio
@@ -274,8 +369,8 @@ export async function generateAISmartDistribution(params: {
     });
     const confidence = Math.round((driverMatches / assignedClients.length) * 100) || 80;
 
-    // Map back with updated route order
-    const sortedClients = orderedTsp.map((t: any, index: number) => ({
+    // Map back sorted clients with routeOrder
+    const sortedClients = optimizedTspStops.map((t: any, index: number) => ({
       ...t.rawClient,
       driver: driverName,
       routeOrder: index + 1
@@ -288,9 +383,20 @@ export async function generateAISmartDistribution(params: {
       totalDistanceKm: distKm,
       estimatedTimeMin: estTimeMin,
       confidenceScore: confidence,
-      historicalMatches: driverMatches
+      historicalMatches: driverMatches,
+      osrmSource: osrmMatrix.source
     };
   });
+
+  const driverRoutes = await Promise.all(driverRoutesPromises);
+
+  // Determine overall OSRM source
+  let overallOSRMSource: 'osrm-local' | 'osrm-remote' | 'haversine' = 'haversine';
+  if (driverRoutes.some(r => r.osrmSource === 'osrm-local')) {
+    overallOSRMSource = 'osrm-local';
+  } else if (driverRoutes.some(r => r.osrmSource === 'osrm-remote')) {
+    overallOSRMSource = 'osrm-remote';
+  }
 
   // 9. Overall Metrics & Insights
   const overallConfidence = Math.round(
@@ -300,11 +406,18 @@ export async function generateAISmartDistribution(params: {
   const minClients = Math.min(...driverRoutes.map(r => r.clients.length));
   const maxClients = Math.max(...driverRoutes.map(r => r.clients.length));
 
-  const insights: string[] = [
-    `Carga de trabajo re-balanceada equitativamente: entre ${minClients} y ${maxClients} clientes por repartidor.`,
-    `Analizadas ${telemetryHistory.length} instantáneas históricas de telemetría.`,
-    `Se respetaron las coincidencias históricas optimizando distancias en el mapa real.`
-  ];
+  const insights: string[] = [];
+
+  if (overallOSRMSource === 'osrm-local') {
+    insights.push(`🗺️ OSRM Docker Local Activo: Rutas optimizadas con calles reales, sentidos de tráfico y giros permitidos.`);
+  } else if (overallOSRMSource === 'osrm-remote') {
+    insights.push(`🌐 OSRM Servidor en Línea: Rutas optimizadas con calles y sentidos de tráfico reales.`);
+  } else {
+    insights.push(`📍 Estimación Geográfica de Coordenadas Directas.`);
+  }
+
+  insights.push(`Carga de trabajo re-balanceada equitativamente: entre ${minClients} y ${maxClients} clientes por chofer.`);
+  insights.push(`Analizadas ${telemetryHistory.length} instantáneas históricas de telemetría.`);
 
   if (manualOverrides && Object.keys(manualOverrides).length > 0) {
     insights.push(`Se aplicaron ${Object.keys(manualOverrides).length} ajustes personalizados solicitados.`);
@@ -315,6 +428,21 @@ export async function generateAISmartDistribution(params: {
     overallConfidence: Math.min(100, Math.max(65, overallConfidence + 20)),
     totalClients: totalClientCount,
     insights,
-    analyzedSnapshotsCount: telemetryHistory.length
+    analyzedSnapshotsCount: telemetryHistory.length,
+    osrmSource: overallOSRMSource
   };
+}
+
+function calculateRouteDistance(route: any[], startLat: number, startLng: number, endAtStart: boolean): number {
+  if (route.length === 0) return 0;
+  let total = getHaversineDistance(startLat, startLng, Number(route[0].lat) || startLat, Number(route[0].lng) || startLng);
+  for (let i = 0; i < route.length - 1; i++) {
+    total += getHaversineDistance(
+      Number(route[i].lat) || startLat,
+      Number(route[i].lng) || startLng,
+      Number(route[i + 1].lat) || startLat,
+      Number(route[i + 1].lng) || startLng
+    );
+  }
+  return total;
 }

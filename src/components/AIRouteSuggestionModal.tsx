@@ -337,6 +337,19 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </div>
               </div>
 
+              {/* OSRM Docker Indicator Badge */}
+              {aiResult.osrmSource === 'osrm-local' && (
+                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-xs font-semibold flex items-center justify-between shadow-sm">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                    🗺️ OSRM Docker Local Activo — Ruteo en tiempo real con calles, giros y sentidos de circulación oficiales
+                  </span>
+                  <span className="text-[10px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200 uppercase font-mono">
+                    http://localhost:5000
+                  </span>
+                </div>
+              )}
+
               {/* REAL GEOGRAPHIC MAP PROJECTION VISUALIZER */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
