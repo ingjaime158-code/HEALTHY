@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Bot, 
   Users, 
@@ -14,7 +14,8 @@ import {
   Sliders, 
   ChevronRight,
   BrainCircuit,
-  Info
+  Info,
+  Maximize2
 } from 'lucide-react';
 import { generateAISmartDistribution, AISuggestionResult, DriverRouteSuggestion } from '../services/api/aiRouteService';
 
@@ -36,9 +37,9 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   allAvailableDrivers
 }) => {
   // Modal state
-  const [step, setStep] = useState<1 | 2>(1); // 1: Driver Selection, 2: AI Map & Recommendation
+  const [step, setStep] = useState<1 | 2>(1);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
-  const [driverCount, setDriverCount] = useState<number>(3);
+  const [driverCount, setDriverCount] = useState<number>(5);
   const [customDriverInput, setCustomDriverInput] = useState<string>('');
   
   // AI Calculation state
@@ -49,8 +50,9 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   const [showFeedbackInput, setShowFeedbackInput] = useState<boolean>(false);
   const [userFeedbackText, setUserFeedbackText] = useState<string>('');
   const [activeDriverTab, setActiveDriverTab] = useState<string>('all');
+  const [hoveredClientId, setHoveredClientId] = useState<string | null>(null);
 
-  // Default driver list if none passed
+  // Default driver list
   const defaultDriversList = [
     'BRAYAN', 'ALVARO', 'NIDIA', 'TONY', 'LUIS', 'MIRIAM', 'KARLA', 'ANGELES'
   ];
@@ -64,9 +66,10 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
       setShowFeedbackInput(false);
       setUserFeedbackText('');
       setAiResult(null);
-      // Pre-select top N drivers by default
-      const initialCount = Math.min(driverCount, driverPool.length);
+      // Pre-select 5 drivers by default if available
+      const initialCount = Math.min(5, driverPool.length);
       setSelectedDrivers(driverPool.slice(0, initialCount));
+      setDriverCount(initialCount);
     }
   }, [isOpen]);
 
@@ -89,7 +92,6 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   const handleCountChange = (newCount: number) => {
     const validCount = Math.max(1, Math.min(10, newCount));
     setDriverCount(validCount);
-    // Adjust selected drivers array length
     if (validCount <= driverPool.length) {
       setSelectedDrivers(driverPool.slice(0, validCount));
     }
@@ -138,11 +140,11 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md overflow-y-auto animate-fade-in">
-      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-900/60 via-slate-900 to-slate-900 border-b border-slate-700/80">
+        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-900/70 via-slate-900 to-slate-900 border-b border-slate-700/80 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
               <Bot className="w-6 h-6 animate-pulse" />
@@ -155,7 +157,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Basado en {aiResult?.analyzedSnapshotsCount || 258} lecturas de telemetría y aprendizaje continuo
+                Optimización geográfica real + Telemetría histórica aprendida
               </p>
             </div>
           </div>
@@ -168,7 +170,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
 
           {/* STEP 1: Driver Selection */}
           {step === 1 && (
@@ -176,10 +178,10 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
               <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-800/40 text-indigo-200 flex items-start space-x-3">
                 <BrainCircuit className="w-6 h-6 text-indigo-400 shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <p className="font-semibold text-white">Configura la jornada de hoy</p>
+                  <p className="font-semibold text-white">Configura la jornada del turno {routeType}</p>
                   <p className="text-slate-300 mt-1">
-                    Indica cuántos y cuáles repartidores trabajarán en el turno <strong>{routeType}</strong>. 
-                    La IA analizará los <strong>{clients.length} clientes</strong> activos y asignará las rutas de forma óptima.
+                    Indica cuántos y cuáles repartidores trabajarán hoy. La IA re-balanceará equitativamente los 
+                    <strong> {clients.length} clientes</strong> activos para evitar rutas sobrecargadas.
                   </p>
                 </div>
               </div>
@@ -190,7 +192,9 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   <label className="text-sm font-semibold text-slate-200 block">
                     ¿Cuántos repartidores laboran hoy?
                   </label>
-                  <span className="text-xs text-slate-400">Ajusta el número total de unidades en ruta</span>
+                  <span className="text-xs text-slate-400">
+                    Sugerencia promedio: {Math.ceil(clients.length / Math.max(1, driverCount))} clientes por chofer
+                  </span>
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -215,7 +219,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
               <div className="space-y-3">
                 <label className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-400" />
-                  Selecciona cuáles repartidores asistieron:
+                  Selecciona los repartidores activos:
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {driverPool.map(driver => {
@@ -270,12 +274,12 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   {isLoading ? (
                     <>
                       <RefreshCw className="w-5 h-5 animate-spin" />
-                      Analizando {clients.length} clientes con IA...
+                      Calculando rutas reales y balanceando carga...
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5" />
-                      Generar Mapa y Ruta Sugerida
+                      Generar Mapa Sugerido Balanceado
                       <ChevronRight className="w-5 h-5" />
                     </>
                   )}
@@ -284,154 +288,92 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
             </div>
           )}
 
-          {/* STEP 2: AI Map & Suggested Distribution */}
+          {/* STEP 2: AI Real Geographic Map & Balance Breakdown */}
           {step === 2 && aiResult && (
             <div className="space-y-6 animate-fade-in">
 
-              {/* Stats Overview Bar */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+              {/* Overview Metric Bar */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400">
                     <Users className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400">Clientes Totales</div>
-                    <div className="text-xl font-bold text-white">{aiResult.totalClients}</div>
+                    <div className="text-[11px] text-slate-400">Clientes Totales</div>
+                    <div className="text-lg font-bold text-white">{aiResult.totalClients}</div>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
                     <Route className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400">Repartidores Activos</div>
-                    <div className="text-xl font-bold text-white">{aiResult.driverRoutes.length}</div>
+                    <div className="text-[11px] text-slate-400">Choferes Activos</div>
+                    <div className="text-lg font-bold text-white">{aiResult.driverRoutes.length}</div>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-400">
+                <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400">
                     <BrainCircuit className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400">Confianza Histórica</div>
-                    <div className="text-xl font-bold text-amber-300">{aiResult.overallConfidence}%</div>
+                    <div className="text-[11px] text-slate-400">Confianza Histórica</div>
+                    <div className="text-lg font-bold text-amber-300">{aiResult.overallConfidence}%</div>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-cyan-500/20 text-cyan-400">
+                <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400">
                     <Sliders className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-xs text-slate-400">Snapshots Evaluados</div>
-                    <div className="text-xl font-bold text-white">{aiResult.analyzedSnapshotsCount}</div>
+                    <div className="text-[11px] text-slate-400">Balance Carga</div>
+                    <div className="text-lg font-bold text-emerald-400">Equilibrado</div>
                   </div>
                 </div>
               </div>
 
-              {/* VISUAL MAP PREVIEW PANEL */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 relative space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              {/* REAL GEOGRAPHIC MAP PROJECTION VISUALIZER */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-indigo-400" />
-                    Vista Previa del Mapa de Rutas Sugeridas por la IA
+                    Proyección Geográfica Real - Zona Metropolitana de Monterrey
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {aiResult.driverRoutes.map(dr => (
                       <span 
                         key={dr.driverName} 
-                        className="text-xs px-2.5 py-1 rounded-md font-semibold text-white flex items-center gap-1.5"
+                        className="text-[11px] px-2.5 py-0.5 rounded font-bold text-white flex items-center gap-1"
                         style={{ backgroundColor: `${dr.color}33`, borderColor: dr.color, borderWidth: '1px' }}
                       >
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: dr.color }} />
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dr.color }} />
                         {dr.driverName} ({dr.clients.length})
                       </span>
                     ))}
                   </div>
                 </div>
 
-                {/* SVG Route Map Visualizer */}
-                <div className="relative h-64 md:h-72 w-full bg-slate-900 rounded-lg border border-slate-800 overflow-hidden flex items-center justify-center">
-                  <svg className="w-full h-full" viewBox="0 0 800 350">
-                    {/* Background grid lines for map feel */}
-                    <defs>
-                      <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-                      </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#grid)" />
-
-                    {/* Central Base Depot Icon */}
-                    <g transform="translate(400, 175)">
-                      <circle r="16" fill="#6366F1" fillOpacity="0.3" className="animate-ping" />
-                      <circle r="12" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="2" />
-                      <text x="0" y="4" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontStyle="bold">BASE</text>
-                    </g>
-
-                    {/* Driver Routes Polylines & Client Pins */}
-                    {aiResult.driverRoutes.map((dr, dIdx) => {
-                      const totalDr = aiResult.driverRoutes.length;
-                      const angleStep = (2 * Math.PI) / Math.max(1, totalDr);
-                      const baseAngle = dIdx * angleStep - Math.PI / 2;
-
-                      // Project clients along radial clusters around base
-                      const points = dr.clients.map((c, cIdx) => {
-                        const radius = 60 + (cIdx * 25) + ((cIdx % 3) * 15);
-                        const angle = baseAngle + (cIdx * 0.15) - 0.2;
-                        const x = 400 + Math.cos(angle) * radius;
-                        const y = 175 + Math.sin(angle) * radius;
-                        return { x, y, client: c, order: cIdx + 1 };
-                      });
-
-                      // Construct polyline path from base -> stop 1 -> stop 2 ...
-                      const pathD = points.length > 0
-                        ? `M 400 175 ` + points.map(p => `L ${p.x} ${p.y}`).join(' ')
-                        : '';
-
-                      return (
-                        <g key={dr.driverName}>
-                          {/* Polyline route line */}
-                          <path
-                            d={pathD}
-                            fill="none"
-                            stroke={dr.color}
-                            strokeWidth="2.5"
-                            strokeDasharray="4 2"
-                            strokeOpacity="0.85"
-                          />
-
-                          {/* Client Marker Pins */}
-                          {points.map((p) => (
-                            <g key={p.client.id} transform={`translate(${p.x}, ${p.y})`}>
-                              <circle r="9" fill={dr.color} stroke="#0F172A" strokeWidth="2" />
-                              <text x="0" y="3" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="bold">
-                                {p.order}
-                              </text>
-                              {/* Hover text label */}
-                              <text x="0" y="18" textAnchor="middle" fill="#CBD5E1" fontSize="8" className="pointer-events-none">
-                                {p.client.name?.substring(0, 12)}
-                              </text>
-                            </g>
-                          ))}
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
+                {/* Real Geographic Mercator Lat/Lng Projection Render */}
+                <RealMercatorMapVisualizer 
+                  driverRoutes={aiResult.driverRoutes}
+                  hoveredClientId={hoveredClientId}
+                  setHoveredClientId={setHoveredClientId}
+                />
               </div>
 
-              {/* Driver Tabs & Breakdown Cards */}
+              {/* DRIVER CARDS & BREAKDOWN */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-200">
-                    Desglose Detallado por Repartidor
+                    Rutas y Carga Equilibrada por Chofer
                   </h3>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     <button
                       onClick={() => setActiveDriverTab('all')}
-                      className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+                      className={`text-xs px-3 py-1 rounded-lg border font-semibold transition-colors ${
                         activeDriverTab === 'all'
                           ? 'bg-indigo-600 border-indigo-500 text-white'
                           : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
@@ -443,14 +385,14 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                       <button
                         key={dr.driverName}
                         onClick={() => setActiveDriverTab(dr.driverName)}
-                        className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors flex items-center gap-1.5 ${
+                        className={`text-xs px-2.5 py-1 rounded-lg border font-semibold transition-colors flex items-center gap-1 ${
                           activeDriverTab === dr.driverName
                             ? 'bg-slate-700 border-slate-500 text-white'
                             : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
                         }`}
                       >
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dr.color }} />
-                        {dr.driverName}
+                        {dr.driverName} ({dr.clients.length})
                       </button>
                     ))}
                   </div>
@@ -462,48 +404,54 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                     .map(dr => (
                       <div 
                         key={dr.driverName}
-                        className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3"
+                        className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/60 space-y-3 shadow-md"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: dr.color }} />
                             <span className="font-bold text-white text-base">{dr.driverName}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-md bg-slate-700 text-slate-300 font-medium">
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-950/60 border border-indigo-700/50 text-indigo-300 font-bold">
                               {dr.clients.length} clientes
                             </span>
                           </div>
-                          <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">
+                          <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40">
                             {dr.confidenceScore}% Coincidencia
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-900/60 p-2.5 rounded-lg">
+                        <div className="flex items-center justify-between text-xs text-slate-300 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
                           <span className="flex items-center gap-1">
                             <Navigation className="w-3.5 h-3.5 text-indigo-400" />
-                            {dr.totalDistanceKm} km est.
+                            <strong>{dr.totalDistanceKm} km</strong> est.
                           </span>
                           <span className="flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5 text-amber-400" />
-                            {Math.floor(dr.estimatedTimeMin / 60)}h {dr.estimatedTimeMin % 60}m est.
+                            <strong>{Math.floor(dr.estimatedTimeMin / 60)}h {dr.estimatedTimeMin % 60}m</strong> est.
                           </span>
-                          <span className="flex items-center gap-1 text-slate-300">
+                          <span className="flex items-center gap-1 text-slate-400">
                             <Info className="w-3.5 h-3.5 text-cyan-400" />
-                            {dr.historicalMatches} fijos históricos
+                            {dr.historicalMatches} fijos
                           </span>
                         </div>
 
-                        {/* List preview of top stops */}
-                        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {/* List preview of stops */}
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                           {dr.clients.map((c, idx) => (
                             <div 
                               key={c.id}
-                              className="text-xs py-1.5 px-2.5 rounded bg-slate-900/40 text-slate-300 flex items-center justify-between border border-slate-800/60"
+                              onMouseEnter={() => setHoveredClientId(c.id)}
+                              onMouseLeave={() => setHoveredClientId(null)}
+                              className={`text-xs py-1.5 px-2.5 rounded transition-all flex items-center justify-between border ${
+                                hoveredClientId === c.id 
+                                  ? 'bg-indigo-900/40 border-indigo-500 text-white' 
+                                  : 'bg-slate-900/50 border-slate-800/80 text-slate-300'
+                              }`}
                             >
-                              <span className="truncate max-w-[200px]">
-                                <strong className="text-indigo-400 mr-1">{idx + 1}.</strong> {c.name}
+                              <span className="truncate max-w-[220px]">
+                                <strong className="mr-1" style={{ color: dr.color }}>{idx + 1}.</strong> {c.name}
                               </span>
-                              <span className="text-[10px] text-slate-500 truncate max-w-[100px]">
-                                {c.tiempos || c.planType || 'General'}
+                              <span className="text-[10px] text-slate-400 truncate max-w-[90px]">
+                                {c.tiempos ? `${c.tiempos} tiempos` : (c.planType || 'General')}
                               </span>
                             </div>
                           ))}
@@ -547,13 +495,13 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
               )}
 
               {/* Action Buttons Bar */}
-              <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
                 <button
                   onClick={() => setStep(1)}
                   className="text-xs text-slate-400 hover:text-white flex items-center gap-1"
                 >
                   <Sliders className="w-3.5 h-3.5" />
-                  Cambiar repartidores ({selectedDrivers.length})
+                  Cambiar choferes ({selectedDrivers.length})
                 </button>
 
                 <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -592,6 +540,196 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
         </div>
 
       </div>
+    </div>
+  );
+};
+
+/**
+ * Real Mercator Map Visualizer component:
+ * Maps actual Lat/Lng coordinates onto a scale grid representing Monterrey metropolitan geographic bounds!
+ */
+const RealMercatorMapVisualizer: React.FC<{
+  driverRoutes: DriverRouteSuggestion[];
+  hoveredClientId: string | null;
+  setHoveredClientId: (id: string | null) => void;
+}> = ({ driverRoutes, hoveredClientId, setHoveredClientId }) => {
+
+  // Flatten all clients with valid coordinates
+  const clientPoints = useMemo(() => {
+    const pts: Array<{
+      id: string;
+      name: string;
+      lat: number;
+      lng: number;
+      driverName: string;
+      color: string;
+      order: number;
+    }> = [];
+
+    driverRoutes.forEach(dr => {
+      dr.clients.forEach((c, idx) => {
+        const lat = Number(c.lat);
+        const lng = Number(c.lng);
+        if (lat && lng && !isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 30) {
+          pts.push({
+            id: c.id,
+            name: c.name,
+            lat,
+            lng,
+            driverName: dr.driverName,
+            color: dr.color,
+            order: idx + 1
+          });
+        }
+      });
+    });
+
+    return pts;
+  }, [driverRoutes]);
+
+  // Compute exact Bounding Box of Monterrey Area
+  const bounds = useMemo(() => {
+    if (clientPoints.length === 0) {
+      return { minLat: 25.60, maxLat: 25.80, minLng: -100.45, maxLng: -100.15 };
+    }
+
+    let minLat = Math.min(...clientPoints.map(p => p.lat));
+    let maxLat = Math.max(...clientPoints.map(p => p.lat));
+    let minLng = Math.min(...clientPoints.map(p => p.lng));
+    let maxLng = Math.max(...clientPoints.map(p => p.lng));
+
+    const latSpan = (maxLat - minLat) || 0.05;
+    const lngSpan = (maxLng - minLng) || 0.05;
+
+    return {
+      minLat: minLat - latSpan * 0.1,
+      maxLat: maxLat + latSpan * 0.1,
+      minLng: minLng - lngSpan * 0.1,
+      maxLng: maxLng + lngSpan * 0.1
+    };
+  }, [clientPoints]);
+
+  // Coordinate Projection Helper (Lat/Lng -> SVG X/Y)
+  const mapToXY = (lat: number, lng: number) => {
+    const x = 50 + ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 700;
+    const y = 25 + ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * 290;
+    return { x, y };
+  };
+
+  // Base Depot Coords (Guadalupe/Monterrey)
+  const baseXY = mapToXY(25.6866, -100.3161);
+
+  return (
+    <div className="relative h-72 md:h-80 w-full bg-slate-950 rounded-lg border border-slate-800/90 overflow-hidden flex items-center justify-center">
+      
+      {/* Background Map Watermark Grid */}
+      <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-60" />
+
+      {/* SVG Canvas for Real Coords Render */}
+      <svg className="w-full h-full relative z-10" viewBox="0 0 800 340">
+        
+        {/* City Reference Landmarks Text Watermark */}
+        <text x="120" y="290" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">SANTA CATARINA</text>
+        <text x="150" y="70" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">GARCÍA / SAN NICOLÁS</text>
+        <text x="600" y="70" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">APODACA / PESQUERÍA</text>
+        <text x="580" y="270" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">GUADALUPE / JUÁREZ</text>
+        <text x="350" y="325" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">CONTRY / CARRETERA NACIONAL</text>
+        <text x="380" y="150" fill="#475569" fontSize="12" fontWeight="bold" letterSpacing="1.5">MONTERREY</text>
+
+        {/* Central Base Marker */}
+        <g transform={`translate(${baseXY.x}, ${baseXY.y})`}>
+          <circle r="14" fill="#6366F1" fillOpacity="0.25" className="animate-ping" />
+          <rect x="-14" y="-8" width="28" height="16" rx="4" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="1.5" />
+          <text x="0" y="3" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="bold">BASE</text>
+        </g>
+
+        {/* Render Driver Polylines & Geographic Marker Pins */}
+        {driverRoutes.map(dr => {
+          const drPoints = clientPoints.filter(p => p.driverName === dr.driverName);
+          if (drPoints.length === 0) return null;
+
+          // Convert all points of this driver to SVG XY
+          const xyPoints = drPoints.map(p => ({
+            ...p,
+            ...mapToXY(p.lat, p.lng)
+          }));
+
+          // Polyline path: Base -> Stop 1 -> Stop 2 ...
+          const pathD = `M ${baseXY.x} ${baseXY.y} ` + xyPoints.map(p => `L ${p.x} ${p.y}`).join(' ');
+
+          return (
+            <g key={dr.driverName}>
+              {/* Route Polyline Path */}
+              <path
+                d={pathD}
+                fill="none"
+                stroke={dr.color}
+                strokeWidth="2.5"
+                strokeOpacity="0.75"
+                strokeDasharray="4 3"
+              />
+
+              {/* Marker Pins */}
+              {xyPoints.map(p => {
+                const isHovered = hoveredClientId === p.id;
+                return (
+                  <g 
+                    key={p.id} 
+                    transform={`translate(${p.x}, ${p.y})`}
+                    onMouseEnter={() => setHoveredClientId(p.id)}
+                    onMouseLeave={() => setHoveredClientId(null)}
+                    className="cursor-pointer transition-all"
+                  >
+                    {/* Pulsing ring on hover */}
+                    {isHovered && (
+                      <circle r="16" fill={p.color} fillOpacity="0.35" className="animate-ping" />
+                    )}
+
+                    {/* Marker circle pin */}
+                    <circle 
+                      r={isHovered ? "11" : "8"} 
+                      fill={p.color} 
+                      stroke="#0F172A" 
+                      strokeWidth="2" 
+                    />
+                    
+                    <text 
+                      x="0" 
+                      y={isHovered ? "4" : "3"} 
+                      textAnchor="middle" 
+                      fill="#FFFFFF" 
+                      fontSize={isHovered ? "10" : "8"} 
+                      fontWeight="bold"
+                    >
+                      {p.order}
+                    </text>
+
+                    {/* Label tooltip on hover */}
+                    {isHovered && (
+                      <g transform="translate(0, -18)">
+                        <rect 
+                          x="-50" 
+                          y="-14" 
+                          width="100" 
+                          height="16" 
+                          rx="4" 
+                          fill="#0F172A" 
+                          stroke={p.color} 
+                          strokeWidth="1" 
+                        />
+                        <text x="0" y="-3" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="bold">
+                          {p.name.substring(0, 14)}
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+
+      </svg>
     </div>
   );
 };

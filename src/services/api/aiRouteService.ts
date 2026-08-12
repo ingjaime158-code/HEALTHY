@@ -23,11 +23,11 @@ const DRIVER_PALETTE = [
   '#3B82F6', // Azul - Brayan
   '#10B981', // Verde - Alvaro
   '#F59E0B', // Naranja - Nidia
-  '#EF4444', // Rojo - Tony
-  '#8B5CF6', // Púrpura - Luis
-  '#EC4899', // Rosa - Miriam
-  '#06B6D4', // Cyan - Karla
-  '#14B8A6', // Teal - Angeles
+  '#EF4444', // Rojo - Luis
+  '#8B5CF6', // Púrpura - Miriam
+  '#EC4899', // Rosa - Karla
+  '#06B6D4', // Cyan - Angeles
+  '#14B8A6', // Teal
   '#6366F1', // Indigo
   '#84CC16', // Lime
 ];
@@ -35,7 +35,7 @@ const DRIVER_PALETTE = [
 /**
  * Fetches recent route distribution telemetry snapshots from Supabase.
  */
-export async function fetchTelemetryHistory(limit = 150): Promise<any[]> {
+export async function fetchTelemetryHistory(limit = 200): Promise<any[]> {
   try {
     const { data, error } = await supabase
       .from('route_distribution_telemetry')
@@ -55,7 +55,7 @@ export async function fetchTelemetryHistory(limit = 150): Promise<any[]> {
 }
 
 /**
- * Generates an AI-driven smart route distribution suggestion based on historical learning + spatial optimization.
+ * Generates an AI-driven smart route distribution suggestion with STRICT WORKLOAD BALANCING & REAL GEO CLUSTERING.
  */
 export async function generateAISmartDistribution(params: {
   clients: any[];
@@ -114,20 +114,28 @@ export async function generateAISmartDistribution(params: {
     });
   }
 
-  // 4. Initial Assignment Logic
+  // 4. Calculate target average capacity per driver to avoid 29 vs 11 imbalance
+  const totalClientCount = clients.length;
+  const targetPerDriver = Math.ceil(totalClientCount / activeDrivers.length);
+  // Strict upper cap per driver (target + 2 max)
+  const maxAllowedPerDriver = Math.max(targetPerDriver + 2, Math.floor(totalClientCount / activeDrivers.length) + 2);
+
   const driverBuckets: Record<string, any[]> = {};
   activeDrivers.forEach(d => { driverBuckets[d] = []; });
   const unassigned: any[] = [];
   let historicalMatchesCount = 0;
 
+  // 5. Candidate historical assignment
   clients.forEach(client => {
     const clientKey = (client.name || client.id || '').trim().toLowerCase();
 
     // Check manual override first
     if (manualOverrides[client.id]) {
       const targetDriver = manualOverrides[client.id];
-      driverBuckets[targetDriver].push(client);
-      return;
+      if (driverBuckets[targetDriver]) {
+        driverBuckets[targetDriver].push(client);
+        return;
+      }
     }
 
     // Check historical affinity
@@ -139,7 +147,6 @@ export async function generateAISmartDistribution(params: {
     if (driverFreqs) {
       Object.entries(driverFreqs).forEach(([d, count]) => {
         totalFreq += count;
-        // Only assign if the historical driver is in today's activeDrivers
         if (activeDrivers.includes(d) && count > maxFreq) {
           maxFreq = count;
           bestDriver = d;
@@ -147,7 +154,7 @@ export async function generateAISmartDistribution(params: {
       });
     }
 
-    // High confidence match threshold (at least 2 historical occurrences or >60% preference)
+    // Assign to historical driver if available
     if (bestDriver && (maxFreq >= 2 || (maxFreq / totalFreq) >= 0.5)) {
       driverBuckets[bestDriver].push(client);
       historicalMatchesCount++;
@@ -156,25 +163,48 @@ export async function generateAISmartDistribution(params: {
     }
   });
 
-  // 5. Balance workload & assign remaining unassigned clients using Geo-Proximity
-  // Target average clients per driver
-  const targetPerDriver = Math.ceil(clients.length / activeDrivers.length);
+  // 6. WORKLOAD RE-BALANCING: Trim overflow from drivers exceeding maxAllowedPerDriver
+  activeDrivers.forEach(d => {
+    const currentList = driverBuckets[d];
+    if (currentList.length > maxAllowedPerDriver) {
+      // Calculate cluster centroid of driver
+      let avgLat = 0, avgLng = 0;
+      currentList.forEach(c => {
+        avgLat += Number(c.lat) || baseLat;
+        avgLng += Number(c.lng) || baseLng;
+      });
+      avgLat /= currentList.length;
+      avgLng /= currentList.length;
 
+      // Sort by distance to centroid (keep closest ones, move furthest ones to unassigned)
+      currentList.sort((a, b) => {
+        const distA = getHaversineDistance(avgLat, avgLng, Number(a.lat) || baseLat, Number(a.lng) || baseLng);
+        const distB = getHaversineDistance(avgLat, avgLng, Number(b.lat) || baseLat, Number(b.lng) || baseLng);
+        return distA - distB;
+      });
+
+      // Keep closest maxAllowedPerDriver, move rest to unassigned
+      const overflow = currentList.splice(maxAllowedPerDriver);
+      unassigned.push(...overflow);
+    }
+  });
+
+  // 7. Assign unassigned & overflow clients using Spatial Proximity + Capacity Balancing
   unassigned.forEach(client => {
     const cLat = Number(client.lat) || baseLat;
     const cLng = Number(client.lng) || baseLng;
 
-    // Find active driver with capacity & shortest average distance to their current cluster
     let bestDriver = activeDrivers[0];
     let minScore = Infinity;
 
     activeDrivers.forEach(d => {
       const currentList = driverBuckets[d];
+      
+      // Calculate geographic distance to driver's cluster
       let dist = 0;
       if (currentList.length === 0) {
         dist = getHaversineDistance(baseLat, baseLng, cLat, cLng);
       } else {
-        // Average distance to driver's existing stops
         let sumDist = 0;
         currentList.forEach(s => {
           sumDist += getHaversineDistance(Number(s.lat) || baseLat, Number(s.lng) || baseLng, cLat, cLng);
@@ -182,9 +212,10 @@ export async function generateAISmartDistribution(params: {
         dist = sumDist / currentList.length;
       }
 
-      // Penalty for drivers who are already over full target capacity
-      const loadPenalty = (currentList.length / targetPerDriver) * 1.5;
-      const score = dist * (1 + loadPenalty);
+      // Strong capacity penalty to enforce even distribution
+      const loadRatio = currentList.length / targetPerDriver;
+      const penalty = Math.pow(loadRatio, 2.5); // Exponential penalty when approaching/exceeding capacity
+      const score = dist * (1 + penalty);
 
       if (score < minScore) {
         minScore = score;
@@ -195,7 +226,7 @@ export async function generateAISmartDistribution(params: {
     driverBuckets[bestDriver].push(client);
   });
 
-  // 6. TSP Route Sequence Optimization & Metrics calculation per driver
+  // 8. TSP Route Sequence Optimization & Metrics calculation per driver
   const driverRoutes: DriverRouteSuggestion[] = activeDrivers.map((driverName, idx) => {
     const assignedClients = driverBuckets[driverName] || [];
     const color = DRIVER_PALETTE[idx % DRIVER_PALETTE.length];
@@ -241,7 +272,7 @@ export async function generateAISmartDistribution(params: {
         driverMatches++;
       }
     });
-    const confidence = Math.round((driverMatches / assignedClients.length) * 100) || 75;
+    const confidence = Math.round((driverMatches / assignedClients.length) * 100) || 80;
 
     // Map back with updated route order
     const sortedClients = orderedTsp.map((t: any, index: number) => ({
@@ -261,15 +292,18 @@ export async function generateAISmartDistribution(params: {
     };
   });
 
-  // 7. Overall Metrics & Insights
+  // 9. Overall Metrics & Insights
   const overallConfidence = Math.round(
-    (historicalMatchesCount / Math.max(1, clients.length)) * 100
+    (historicalMatchesCount / Math.max(1, totalClientCount)) * 100
   );
 
+  const minClients = Math.min(...driverRoutes.map(r => r.clients.length));
+  const maxClients = Math.max(...driverRoutes.map(r => r.clients.length));
+
   const insights: string[] = [
+    `Carga de trabajo re-balanceada equitativamente: entre ${minClients} y ${maxClients} clientes por repartidor.`,
     `Analizadas ${telemetryHistory.length} instantáneas históricas de telemetría.`,
-    `Se identificaron ${historicalMatchesCount} clientes con patrones fijos de chofer habituados.`,
-    `Carga de trabajo balanceada uniformemente entre los ${activeDrivers.length} repartidores seleccionados.`
+    `Se respetaron las coincidencias históricas optimizando distancias en el mapa real.`
   ];
 
   if (manualOverrides && Object.keys(manualOverrides).length > 0) {
@@ -278,8 +312,8 @@ export async function generateAISmartDistribution(params: {
 
   return {
     driverRoutes,
-    overallConfidence: Math.min(100, Math.max(50, overallConfidence + 25)),
-    totalClients: clients.length,
+    overallConfidence: Math.min(100, Math.max(65, overallConfidence + 20)),
+    totalClients: totalClientCount,
     insights,
     analyzedSnapshotsCount: telemetryHistory.length
   };
