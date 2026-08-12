@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Bot, 
   Users, 
@@ -18,7 +18,6 @@ import {
   Layers,
   Map as MapIcon
 } from 'lucide-react';
-import { Map, AdvancedMarker, useMap } from '@vis.gl/react-google-maps';
 import { generateAISmartDistribution, AISuggestionResult, DriverRouteSuggestion } from '../services/api/aiRouteService';
 
 interface AIRouteSuggestionModalProps {
@@ -53,7 +52,6 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   const [userFeedbackText, setUserFeedbackText] = useState<string>('');
   const [activeDriverTab, setActiveDriverTab] = useState<string>('all');
   const [hoveredClientId, setHoveredClientId] = useState<string | null>(null);
-  const [mapMode, setMapMode] = useState<'google' | 'tile'>('google');
 
   // Default driver list
   const defaultDriversList = [
@@ -161,7 +159,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Mapa Real de Calles + OSRM + Telemetría Histórica
+                Mapa Real Interactivo de Calles + OSRM + Telemetría Histórica
               </p>
             </div>
           </div>
@@ -352,7 +350,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </div>
               )}
 
-              {/* REAL MAP COMPONENT (GOOGLE MAPS REAL MAP) */}
+              {/* REAL MAP COMPONENT (LEAFLET / OPENSTREETMAP REAL MAP VISUALIZER) */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <span className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-2">
@@ -361,27 +359,6 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   </span>
                   
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800 mr-2">
-                      <button
-                        onClick={() => setMapMode('google')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 ${
-                          mapMode === 'google' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <MapIcon className="w-3 h-3" />
-                        Mapa Interactivo Real
-                      </button>
-                      <button
-                        onClick={() => setMapMode('tile')}
-                        className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 ${
-                          mapMode === 'tile' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <Layers className="w-3 h-3" />
-                        Vista Satélite/Calles
-                      </button>
-                    </div>
-
                     {aiResult.driverRoutes.map(dr => (
                       <span 
                         key={dr.driverName} 
@@ -395,12 +372,11 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Real Google Map / Tile Map Display */}
-                <InteractiveRealMapVisualizer 
+                {/* Real Interactive Leaflet Map Visualizer */}
+                <RealLeafletMapVisualizer 
                   driverRoutes={aiResult.driverRoutes}
                   hoveredClientId={hoveredClientId}
                   setHoveredClientId={setHoveredClientId}
-                  mapMode={mapMode}
                 />
               </div>
 
@@ -585,119 +561,177 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
 };
 
 /**
- * Auto Bounds Fitter component for Google Map
- */
-const MapBoundsFitter: React.FC<{ points: Array<{ lat: number; lng: number }> }> = ({ points }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (!map || points.length === 0 || typeof google === 'undefined') return;
-    try {
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend({ lat: 25.7819168, lng: -100.191302 }); // Base
-      points.forEach(p => {
-        if (p.lat && p.lng) bounds.extend({ lat: p.lat, lng: p.lng });
-      });
-      map.fitBounds(bounds, { top: 40, bottom: 40, left: 40, right: 40 });
-    } catch (e) {
-      console.warn('[MapBoundsFitter] Exception fitting map bounds:', e);
-    }
-  }, [map, points]);
-  return null;
-};
-
-/**
- * Interactive Real Map Component:
- * Renders an actual interactive Google Map with street tiles, terrain, highways, real-time zoom/pan, 
+ * Real Leaflet / OpenStreetMap / Satellite Map Component.
+ * 100% free, no Google Maps API Key billing errors, rendering real streets, roads, satellite imagery, 
  * base marker, and custom colored pins for every driver delivery!
  */
-const InteractiveRealMapVisualizer: React.FC<{
+const RealLeafletMapVisualizer: React.FC<{
   driverRoutes: DriverRouteSuggestion[];
   hoveredClientId: string | null;
   setHoveredClientId: (id: string | null) => void;
-  mapMode: 'google' | 'tile';
-}> = ({ driverRoutes, hoveredClientId, setHoveredClientId, mapMode }) => {
+}> = ({ driverRoutes, hoveredClientId, setHoveredClientId }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const [mapType, setMapType] = useState<'streets' | 'satellite'>('streets');
+  const [leafletLoaded, setLeafletLoaded] = useState<boolean>(false);
 
-  const clientPoints = useMemo(() => {
-    const pts: Array<{
-      id: string;
-      name: string;
-      lat: number;
-      lng: number;
-      driverName: string;
-      color: string;
-      order: number;
-    }> = [];
+  // Load Leaflet JS & CSS dynamically from CDN
+  useEffect(() => {
+    if ((window as any).L) {
+      setLeafletLoaded(true);
+      return;
+    }
 
+    const existingCss = document.getElementById('leaflet-css');
+    if (!existingCss) {
+      const cssLink = document.createElement('link');
+      cssLink.id = 'leaflet-css';
+      cssLink.rel = 'stylesheet';
+      cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(cssLink);
+    }
+
+    const existingScript = document.getElementById('leaflet-js');
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.id = 'leaflet-js';
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.onload = () => setLeafletLoaded(true);
+      document.body.appendChild(script);
+    } else {
+      setLeafletLoaded(true);
+    }
+  }, []);
+
+  // Initialize and render Leaflet map instance
+  useEffect(() => {
+    if (!leafletLoaded || !containerRef.current || typeof (window as any).L === 'undefined') return;
+    const L = (window as any).L;
+
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.remove();
+      } catch (e) {
+        // ignore cleanup
+      }
+      mapInstanceRef.current = null;
+    }
+
+    const map = L.map(containerRef.current, {
+      center: [25.7819168, -100.191302],
+      zoom: 11,
+      zoomControl: true,
+      attributionControl: false
+    });
+    mapInstanceRef.current = map;
+
+    // Select Tile Layer
+    const tileUrl = mapType === 'satellite'
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+    L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
+
+    // Base Depot Icon
+    const baseIcon = L.divIcon({
+      className: 'custom-base-icon',
+      html: `<div style="background:#4F46E5; color:white; font-weight:bold; font-size:11px; padding:3px 8px; border-radius:8px; border:2px solid white; box-shadow:0 4px 6px rgba(0,0,0,0.3); white-space:nowrap;">🏢 BASE</div>`,
+      iconSize: [60, 24],
+      iconAnchor: [30, 12]
+    });
+
+    L.marker([25.7819168, -100.191302], { icon: baseIcon })
+      .addTo(map)
+      .bindPopup("<b>BASE DE CHOFERES</b><br>Apodaca / Guadalupe");
+
+    const bounds = L.latLngBounds([[25.7819168, -100.191302]]);
+
+    // Add Driver Routes & Markers
     driverRoutes.forEach(dr => {
+      const routeLatLngs: [number, number][] = [[25.7819168, -100.191302]];
+
       dr.clients.forEach((c, idx) => {
         const lat = Number(c.lat);
         const lng = Number(c.lng);
         if (lat && lng && !isNaN(lat) && !isNaN(lng) && lat > 20 && lat < 30) {
-          pts.push({
-            id: c.id,
-            name: c.name,
-            lat,
-            lng,
-            driverName: dr.driverName,
-            color: dr.color,
-            order: idx + 1
+          routeLatLngs.push([lat, lng]);
+          bounds.extend([lat, lng]);
+
+          const stopNum = idx + 1;
+          const markerIcon = L.divIcon({
+            className: 'custom-stop-icon',
+            html: `<div style="background:${dr.color}; color:white; font-weight:900; font-size:11px; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #0f172a; box-shadow:0 2px 4px rgba(0,0,0,0.4); cursor:pointer;">${stopNum}</div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
           });
+
+          const m = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
+          m.bindPopup(`<b>${dr.driverName} - #${stopNum}</b><br>${c.name}<br>${c.address || ''}`);
+
+          m.on('mouseover', () => setHoveredClientId(c.id));
+          m.on('mouseout', () => setHoveredClientId(null));
         }
       });
+
+      // Draw polyline connecting stops
+      if (routeLatLngs.length > 1) {
+        L.polyline(routeLatLngs, {
+          color: dr.color,
+          weight: 3.5,
+          opacity: 0.85,
+          dashArray: '6, 6'
+        }).addTo(map);
+      }
     });
 
-    return pts;
-  }, [driverRoutes]);
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.remove();
+        } catch (e) {
+          // ignore cleanup
+        }
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [leafletLoaded, driverRoutes, mapType]);
 
   return (
     <div className="relative h-72 md:h-80 w-full bg-slate-950 rounded-lg border border-slate-800/90 overflow-hidden shadow-inner">
       
-      {/* 1. REAL GOOGLE MAP VIEW */}
-      <Map
-        id="ai-suggestion-google-map"
-        defaultCenter={{ lat: 25.7819168, lng: -100.191302 }}
-        defaultZoom={11}
-        gestureHandling="greedy"
-        disableDefaultUI={false}
-        mapTypeId={mapMode === 'tile' ? 'hybrid' : 'roadmap'}
-        className="w-full h-full"
-      >
-        <MapBoundsFitter points={clientPoints} />
+      {/* Map Canvas Container */}
+      <div ref={containerRef} className="w-full h-full z-10" />
 
-        {/* Base Depot Marker */}
-        <AdvancedMarker 
-          position={{ lat: 25.7819168, lng: -100.191302 }} 
-          title="BASE DE CHOFERES (Apodaca/Guadalupe)"
+      {/* Layer Toggle Controls */}
+      <div className="absolute top-3 right-3 z-[1000] flex bg-slate-900/90 backdrop-blur-md p-1 rounded-lg border border-slate-700/80 shadow-lg">
+        <button
+          onClick={() => setMapType('streets')}
+          className={`px-3 py-1 text-xs font-bold rounded transition-colors ${
+            mapType === 'streets' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
+          }`}
         >
-          <div className="bg-indigo-600 border-2 border-white text-white font-bold text-xs px-2.5 py-1 rounded-lg shadow-lg flex items-center gap-1 animate-bounce">
-            🏢 BASE
-          </div>
-        </AdvancedMarker>
+          🗺️ Calles Real
+        </button>
+        <button
+          onClick={() => setMapType('satellite')}
+          className={`px-3 py-1 text-xs font-bold rounded transition-colors ${
+            mapType === 'satellite' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          🛰️ Satélite
+        </button>
+      </div>
 
-        {/* Client Markers with Custom Colors & Stop Numbers */}
-        {clientPoints.map(p => {
-          const isHovered = hoveredClientId === p.id;
-          return (
-            <AdvancedMarker
-              key={p.id}
-              position={{ lat: p.lat, lng: p.lng }}
-              title={`${p.driverName} - #${p.order} ${p.name}`}
-            >
-              <div 
-                onMouseEnter={() => setHoveredClientId(p.id)}
-                onMouseLeave={() => setHoveredClientId(null)}
-                className={`w-7 h-7 rounded-full text-white font-black text-xs flex items-center justify-center border-2 border-slate-900 shadow-md transition-transform cursor-pointer ${
-                  isHovered ? 'scale-150 z-50 ring-4 ring-white/60' : 'hover:scale-125'
-                }`}
-                style={{ backgroundColor: p.color }}
-              >
-                {p.order}
-              </div>
-            </AdvancedMarker>
-          );
-        })}
-      </Map>
-
+      {!leafletLoaded && (
+        <div className="absolute inset-0 bg-slate-950 flex items-center justify-center text-slate-400 text-xs font-medium z-20">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2 text-indigo-400" />
+          Cargando mapa interactivo...
+        </div>
+      )}
     </div>
   );
 };
