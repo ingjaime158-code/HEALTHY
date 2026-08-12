@@ -1743,35 +1743,44 @@ const ClientManager: React.FC = () => {
                 </button>
               </div>
 
-              {/* Search Bar */}
-              <div className="flex-1 relative w-full xl:w-auto">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">search</span>
+            </div>
+
+            {/* BUSCADOR PROMINENTE Y FILTROS AVANZADOS */}
+            <div className="flex flex-col lg:flex-row items-center justify-between gap-3 bg-white border border-slate-200/90 p-2.5 px-4 rounded-xl shadow-sm">
+              {/* Buscador Prominente */}
+              <div className="relative w-full lg:max-w-md flex-1">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-purple-600 text-[18px]">search</span>
                 <input
                   type="text"
-                  placeholder="Buscar cliente por nombre o dirección..."
-                  className="w-full pl-9 pr-4 py-1.5 text-xs border border-slate-200 focus:border-purple-500 bg-slate-50 focus:bg-white rounded-lg focus:outline-none transition-all font-medium text-slate-800"
+                  placeholder="🔍 Buscar cliente por nombre, dirección o teléfono..."
+                  className="w-full pl-9 pr-9 py-2 text-xs border border-purple-200 focus:border-purple-600 bg-slate-50 focus:bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all font-semibold text-slate-800 shadow-inner"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                  </button>
+                )}
               </div>
-              
-            </div>
 
-            {/* ADVANCED FILTERS ROW */}
-            <div className="flex flex-col sm:flex-row items-center gap-2.5 bg-slate-50 border border-slate-100 p-1.5 px-3 rounded-xl">
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 self-start sm:self-auto pt-1 sm:pt-0 shrink-0 select-none">
-                <span className="material-symbols-outlined text-[14px] text-purple-650">filter_alt</span>
-                Filtros avanzados:
-              </span>
-              
-              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2.5 w-full sm:w-auto flex-1">
+              {/* Filtros Dropdown */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 shrink-0 select-none">
+                  <span className="material-symbols-outlined text-[14px] text-purple-650">filter_alt</span>
+                  Filtros:
+                </span>
+                
                 {/* Repartidor Select Dropdown */}
-                <div className="relative flex-1 sm:max-w-[200px]">
+                <div className="relative flex-1 sm:flex-none min-w-[160px]">
                   <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-650 text-[14px]">sports_motorsports</span>
                   <select
                     value={driverFilter}
                     onChange={(e) => setDriverFilter(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
                   >
                     {uniqueDrivers.map(driver => (
                       <option key={driver} value={driver}>
@@ -1783,12 +1792,12 @@ const ClientManager: React.FC = () => {
                 </div>
 
                 {/* Plan Select Dropdown */}
-                <div className="relative flex-1 sm:max-w-[200px]">
+                <div className="relative flex-1 sm:flex-none min-w-[160px]">
                   <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-650 text-[14px]">restaurant</span>
                   <select
                     value={planFilter}
                     onChange={(e) => setPlanFilter(e.target.value)}
-                    className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
                   >
                     {uniquePlans.map(plan => (
                       <option key={plan} value={plan}>
@@ -1807,9 +1816,9 @@ const ClientManager: React.FC = () => {
                       setPlanFilter('TODOS');
                       setSearchQuery('');
                     }}
-                    className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 px-4 py-2 border border-purple-250 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-black uppercase tracking-wider rounded-xl transition-all hover:-translate-y-0.5 active:scale-95 shadow-sm"
+                    className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all hover:-translate-y-0.5 active:scale-95 shadow-sm cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[16px]">filter_alt_off</span>
+                    <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
                     Limpiar
                   </button>
                 )}
