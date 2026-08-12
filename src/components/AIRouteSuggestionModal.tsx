@@ -15,8 +15,10 @@ import {
   ChevronRight,
   BrainCircuit,
   Info,
-  Maximize2
+  Layers,
+  Map as MapIcon
 } from 'lucide-react';
+import { Map, AdvancedMarker, useMap } from '@vis.gl/react-google-maps';
 import { generateAISmartDistribution, AISuggestionResult, DriverRouteSuggestion } from '../services/api/aiRouteService';
 
 interface AIRouteSuggestionModalProps {
@@ -51,6 +53,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
   const [userFeedbackText, setUserFeedbackText] = useState<string>('');
   const [activeDriverTab, setActiveDriverTab] = useState<string>('all');
   const [hoveredClientId, setHoveredClientId] = useState<string | null>(null);
+  const [mapMode, setMapMode] = useState<'google' | 'tile'>('google');
 
   // Default driver list
   const defaultDriversList = [
@@ -66,7 +69,6 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
       setShowFeedbackInput(false);
       setUserFeedbackText('');
       setAiResult(null);
-      // Pre-select 5 drivers by default if available
       const initialCount = Math.min(5, driverPool.length);
       setSelectedDrivers(driverPool.slice(0, initialCount));
       setDriverCount(initialCount);
@@ -159,7 +161,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                Optimización geográfica real + Telemetría histórica aprendida
+                Mapa Real de Calles + OSRM + Telemetría Histórica
               </p>
             </div>
           </div>
@@ -183,7 +185,7 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   <p className="font-semibold text-white">Configura la jornada del turno {routeType}</p>
                   <p className="text-slate-300 mt-1">
                     Indica cuántos y cuáles repartidores trabajarán hoy. La IA re-balanceará equitativamente los 
-                    <strong> {clients.length} clientes</strong> activos para evitar rutas sobrecargadas.
+                    <strong> {clients.length} clientes</strong> activos en el mapa real de calles.
                   </p>
                 </div>
               </div>
@@ -276,12 +278,12 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   {isLoading ? (
                     <>
                       <RefreshCw className="w-5 h-5 animate-spin" />
-                      Calculando rutas reales y balanceando carga...
+                      Calculando mapa real y balanceando carga...
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5" />
-                      Generar Mapa Sugerido Balanceado
+                      Generar Mapa Real Sugerido
                       <ChevronRight className="w-5 h-5" />
                     </>
                   )}
@@ -350,14 +352,36 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                 </div>
               )}
 
-              {/* REAL GEOGRAPHIC MAP PROJECTION VISUALIZER */}
+              {/* REAL MAP COMPONENT (GOOGLE MAPS REAL MAP) */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <span className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-indigo-400" />
-                    Proyección Geográfica Real - Zona Metropolitana de Monterrey
+                    Mapa Real de Rutas Sugeridas - Zona Metropolitana de Monterrey
                   </span>
+                  
                   <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800 mr-2">
+                      <button
+                        onClick={() => setMapMode('google')}
+                        className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 ${
+                          mapMode === 'google' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <MapIcon className="w-3 h-3" />
+                        Mapa Interactivo Real
+                      </button>
+                      <button
+                        onClick={() => setMapMode('tile')}
+                        className={`px-2 py-1 text-[10px] font-bold rounded flex items-center gap-1 ${
+                          mapMode === 'tile' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Layers className="w-3 h-3" />
+                        Vista Satélite/Calles
+                      </button>
+                    </div>
+
                     {aiResult.driverRoutes.map(dr => (
                       <span 
                         key={dr.driverName} 
@@ -371,11 +395,12 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Real Geographic Mercator Lat/Lng Projection Render */}
-                <RealMercatorMapVisualizer 
+                {/* Real Google Map / Tile Map Display */}
+                <InteractiveRealMapVisualizer 
                   driverRoutes={aiResult.driverRoutes}
                   hoveredClientId={hoveredClientId}
                   setHoveredClientId={setHoveredClientId}
+                  mapMode={mapMode}
                 />
               </div>
 
@@ -560,16 +585,38 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
 };
 
 /**
- * Real Mercator Map Visualizer component:
- * Maps actual Lat/Lng coordinates onto a scale grid representing Monterrey metropolitan geographic bounds!
+ * Auto Bounds Fitter component for Google Map
  */
-const RealMercatorMapVisualizer: React.FC<{
+const MapBoundsFitter: React.FC<{ points: Array<{ lat: number; lng: number }> }> = ({ points }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!map || points.length === 0 || typeof google === 'undefined') return;
+    try {
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend({ lat: 25.7819168, lng: -100.191302 }); // Base
+      points.forEach(p => {
+        if (p.lat && p.lng) bounds.extend({ lat: p.lat, lng: p.lng });
+      });
+      map.fitBounds(bounds, { top: 40, bottom: 40, left: 40, right: 40 });
+    } catch (e) {
+      console.warn('[MapBoundsFitter] Exception fitting map bounds:', e);
+    }
+  }, [map, points]);
+  return null;
+};
+
+/**
+ * Interactive Real Map Component:
+ * Renders an actual interactive Google Map with street tiles, terrain, highways, real-time zoom/pan, 
+ * base marker, and custom colored pins for every driver delivery!
+ */
+const InteractiveRealMapVisualizer: React.FC<{
   driverRoutes: DriverRouteSuggestion[];
   hoveredClientId: string | null;
   setHoveredClientId: (id: string | null) => void;
-}> = ({ driverRoutes, hoveredClientId, setHoveredClientId }) => {
+  mapMode: 'google' | 'tile';
+}> = ({ driverRoutes, hoveredClientId, setHoveredClientId, mapMode }) => {
 
-  // Flatten all clients with valid coordinates
   const clientPoints = useMemo(() => {
     const pts: Array<{
       id: string;
@@ -602,149 +649,55 @@ const RealMercatorMapVisualizer: React.FC<{
     return pts;
   }, [driverRoutes]);
 
-  // Compute exact Bounding Box of Monterrey Area
-  const bounds = useMemo(() => {
-    if (clientPoints.length === 0) {
-      return { minLat: 25.60, maxLat: 25.80, minLng: -100.45, maxLng: -100.15 };
-    }
-
-    let minLat = Math.min(...clientPoints.map(p => p.lat));
-    let maxLat = Math.max(...clientPoints.map(p => p.lat));
-    let minLng = Math.min(...clientPoints.map(p => p.lng));
-    let maxLng = Math.max(...clientPoints.map(p => p.lng));
-
-    const latSpan = (maxLat - minLat) || 0.05;
-    const lngSpan = (maxLng - minLng) || 0.05;
-
-    return {
-      minLat: minLat - latSpan * 0.1,
-      maxLat: maxLat + latSpan * 0.1,
-      minLng: minLng - lngSpan * 0.1,
-      maxLng: maxLng + lngSpan * 0.1
-    };
-  }, [clientPoints]);
-
-  // Coordinate Projection Helper (Lat/Lng -> SVG X/Y)
-  const mapToXY = (lat: number, lng: number) => {
-    const x = 50 + ((lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 700;
-    const y = 25 + ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * 290;
-    return { x, y };
-  };
-
-  // Base Depot Coords (Apodaca/Guadalupe Base)
-  const baseXY = mapToXY(25.7819168, -100.191302);
-
   return (
-    <div className="relative h-72 md:h-80 w-full bg-slate-950 rounded-lg border border-slate-800/90 overflow-hidden flex items-center justify-center">
+    <div className="relative h-72 md:h-80 w-full bg-slate-950 rounded-lg border border-slate-800/90 overflow-hidden shadow-inner">
       
-      {/* Background Map Watermark Grid */}
-      <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-60" />
+      {/* 1. REAL GOOGLE MAP VIEW */}
+      <Map
+        id="ai-suggestion-google-map"
+        defaultCenter={{ lat: 25.7819168, lng: -100.191302 }}
+        defaultZoom={11}
+        gestureHandling="greedy"
+        disableDefaultUI={false}
+        mapTypeId={mapMode === 'tile' ? 'hybrid' : 'roadmap'}
+        className="w-full h-full"
+      >
+        <MapBoundsFitter points={clientPoints} />
 
-      {/* SVG Canvas for Real Coords Render */}
-      <svg className="w-full h-full relative z-10" viewBox="0 0 800 340">
-        
-        {/* City Reference Landmarks Text Watermark */}
-        <text x="120" y="290" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">SANTA CATARINA</text>
-        <text x="150" y="70" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">GARCÍA / SAN NICOLÁS</text>
-        <text x="600" y="70" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">APODACA / PESQUERÍA</text>
-        <text x="580" y="270" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">GUADALUPE / JUÁREZ</text>
-        <text x="350" y="325" fill="#334155" fontSize="11" fontWeight="bold" letterSpacing="1">CONTRY / CARRETERA NACIONAL</text>
-        <text x="380" y="150" fill="#475569" fontSize="12" fontWeight="bold" letterSpacing="1.5">MONTERREY</text>
+        {/* Base Depot Marker */}
+        <AdvancedMarker 
+          position={{ lat: 25.7819168, lng: -100.191302 }} 
+          title="BASE DE CHOFERES (Apodaca/Guadalupe)"
+        >
+          <div className="bg-indigo-600 border-2 border-white text-white font-bold text-xs px-2.5 py-1 rounded-lg shadow-lg flex items-center gap-1 animate-bounce">
+            🏢 BASE
+          </div>
+        </AdvancedMarker>
 
-        {/* Central Base Marker */}
-        <g transform={`translate(${baseXY.x}, ${baseXY.y})`}>
-          <circle r="14" fill="#6366F1" fillOpacity="0.25" className="animate-ping" />
-          <rect x="-14" y="-8" width="28" height="16" rx="4" fill="#4F46E5" stroke="#FFFFFF" strokeWidth="1.5" />
-          <text x="0" y="3" textAnchor="middle" fill="#FFFFFF" fontSize="8" fontWeight="bold">BASE</text>
-        </g>
-
-        {/* Render Driver Polylines & Geographic Marker Pins */}
-        {driverRoutes.map(dr => {
-          const drPoints = clientPoints.filter(p => p.driverName === dr.driverName);
-          if (drPoints.length === 0) return null;
-
-          // Convert all points of this driver to SVG XY
-          const xyPoints = drPoints.map(p => ({
-            ...p,
-            ...mapToXY(p.lat, p.lng)
-          }));
-
-          // Polyline path: Base -> Stop 1 -> Stop 2 ...
-          const pathD = `M ${baseXY.x} ${baseXY.y} ` + xyPoints.map(p => `L ${p.x} ${p.y}`).join(' ');
-
+        {/* Client Markers with Custom Colors & Stop Numbers */}
+        {clientPoints.map(p => {
+          const isHovered = hoveredClientId === p.id;
           return (
-            <g key={dr.driverName}>
-              {/* Route Polyline Path */}
-              <path
-                d={pathD}
-                fill="none"
-                stroke={dr.color}
-                strokeWidth="2.5"
-                strokeOpacity="0.75"
-                strokeDasharray="4 3"
-              />
-
-              {/* Marker Pins */}
-              {xyPoints.map(p => {
-                const isHovered = hoveredClientId === p.id;
-                return (
-                  <g 
-                    key={p.id} 
-                    transform={`translate(${p.x}, ${p.y})`}
-                    onMouseEnter={() => setHoveredClientId(p.id)}
-                    onMouseLeave={() => setHoveredClientId(null)}
-                    className="cursor-pointer transition-all"
-                  >
-                    {/* Pulsing ring on hover */}
-                    {isHovered && (
-                      <circle r="16" fill={p.color} fillOpacity="0.35" className="animate-ping" />
-                    )}
-
-                    {/* Marker circle pin */}
-                    <circle 
-                      r={isHovered ? "11" : "8"} 
-                      fill={p.color} 
-                      stroke="#0F172A" 
-                      strokeWidth="2" 
-                    />
-                    
-                    <text 
-                      x="0" 
-                      y={isHovered ? "4" : "3"} 
-                      textAnchor="middle" 
-                      fill="#FFFFFF" 
-                      fontSize={isHovered ? "10" : "8"} 
-                      fontWeight="bold"
-                    >
-                      {p.order}
-                    </text>
-
-                    {/* Label tooltip on hover */}
-                    {isHovered && (
-                      <g transform="translate(0, -18)">
-                        <rect 
-                          x="-50" 
-                          y="-14" 
-                          width="100" 
-                          height="16" 
-                          rx="4" 
-                          fill="#0F172A" 
-                          stroke={p.color} 
-                          strokeWidth="1" 
-                        />
-                        <text x="0" y="-3" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="bold">
-                          {p.name.substring(0, 14)}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            </g>
+            <AdvancedMarker
+              key={p.id}
+              position={{ lat: p.lat, lng: p.lng }}
+              title={`${p.driverName} - #${p.order} ${p.name}`}
+            >
+              <div 
+                onMouseEnter={() => setHoveredClientId(p.id)}
+                onMouseLeave={() => setHoveredClientId(null)}
+                className={`w-7 h-7 rounded-full text-white font-black text-xs flex items-center justify-center border-2 border-slate-900 shadow-md transition-transform cursor-pointer ${
+                  isHovered ? 'scale-150 z-50 ring-4 ring-white/60' : 'hover:scale-125'
+                }`}
+                style={{ backgroundColor: p.color }}
+              >
+                {p.order}
+              </div>
+            </AdvancedMarker>
           );
         })}
+      </Map>
 
-      </svg>
     </div>
   );
 };
