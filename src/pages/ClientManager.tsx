@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { getBusinesses, updateBusiness, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin, saveRouteDistributionTelemetry } from '../services/dataService';
 import { pushToGoogleSheets, fetchClientsFromGoogleSheet, distributeRoutesToGoogleSheets } from '../services/googleSheetsService';
 import { solveTSP, solveTSPWithMatrix } from '../utils/routeOptimizer';
+import { AIRouteSuggestionModal } from '../components/AIRouteSuggestionModal';
+import { AISuggestionResult } from '../services/api/aiRouteService';
 declare const google: any;
 import { parseCsv } from '../utils/csvParser';
 import { calculateBagsForClient, getClientTiempos } from '../utils/bagCalculator';
@@ -168,6 +170,7 @@ const ClientManager: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
   const [isDistributing, setIsDistributing] = useState<boolean>(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
 
   // Modal State for Column Editing
   const [editingClient, setEditingClient] = useState<any | null>(null);
@@ -1684,6 +1687,16 @@ const ClientManager: React.FC = () => {
                   {isSyncingSheets ? 'Sincronizando...' : 'Sincronizar con Excel'}
                 </button>
 
+                {/* Botón IA Sugerencia Inteligente */}
+                <button
+                  onClick={() => setIsAiModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 border-indigo-400 text-white hover:from-emerald-500 hover:to-indigo-500 hover:border-indigo-300 hover:-translate-y-0.5 active:scale-95 shadow-md shadow-indigo-500/20 shrink-0 cursor-pointer"
+                  title="Analizar el historial de telemetría de IA y generar la pre-asignación y ruta óptima"
+                >
+                  <span className="material-symbols-outlined text-[14px]">psychology</span>
+                  🤖 Sugerencia Inteligente IA
+                </button>
+
                 {/* Optimizar Rutas Button */}
                 <button
                   onClick={() => setIsOptimizeModalOpen(true)}
@@ -2740,6 +2753,78 @@ const ClientManager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Sugerencia Inteligente de IA */}
+      <AIRouteSuggestionModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        onImplement={async (suggestion: AISuggestionResult) => {
+          setIsAiModalOpen(false);
+          showFeedbackToast('🤖 Aplicando sugerencia inteligente de IA...');
+
+          try {
+            const rawBusinesses = await getBusinesses();
+            let updatedCount = 0;
+
+            for (const dr of suggestion.driverRoutes) {
+              for (let i = 0; i < dr.clients.length; i++) {
+                const client = dr.clients[i];
+                const matchDb = rawBusinesses.find((b: any) => b.id === client.id);
+                if (matchDb) {
+                  const profile = parseClientProfile(matchDb.email);
+                  const updatedEmail = serializeClientProfile(matchDb.email, {
+                    [selectedRoute]: {
+                      driver: dr.driverName,
+                      routeOrder: i + 1
+                    }
+                  });
+                  await updateBusiness({
+                    ...matchDb,
+                    email: updatedEmail
+                  });
+                  updatedCount++;
+                }
+              }
+            }
+
+            // Save telemetry snapshot of this AI implementation
+            try {
+              const activeForTelemetry = suggestion.driverRoutes.flatMap(dr => 
+                dr.clients.map((c, idx) => ({
+                  id: c.id,
+                  name: c.name,
+                  lat: c.lat,
+                  lng: c.lng,
+                  driver: dr.driverName,
+                  planType: c.planType,
+                  tiempos: c.tiempos,
+                  bags: c.plansCount,
+                  routeOrder: idx + 1,
+                  exclusions: c.exclusions,
+                  siglas: c.siglas
+                }))
+              );
+
+              await saveRouteDistributionTelemetry({
+                route_date: new Date().toLocaleDateString('sv-SE'),
+                route_type: selectedRoute,
+                clients_data: activeForTelemetry
+              });
+            } catch (tErr) {
+              console.error('[ClientManager] Telemetry save error on AI implement:', tErr);
+            }
+
+            await fetchClientsAndDrivers(true);
+            showFeedbackToast(`🤖 ✅ ¡Rutas Inteligentes implementadas con éxito! Actualizadas ${updatedCount} asignaciones.`);
+          } catch (err) {
+            console.error('[ClientManager] Error implementing AI suggestion:', err);
+            showFeedbackToast('❌ Error al implementar la sugerencia de IA en la base de datos.');
+          }
+        }}
+        clients={parsedClients.filter(c => c.routeType === selectedRoute && c.isActive)}
+        routeType={selectedRoute}
+        allAvailableDrivers={systemDrivers.map(d => d.name.trim().toUpperCase())}
+      />
 
     </div>
   );
