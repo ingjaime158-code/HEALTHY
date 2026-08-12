@@ -66,8 +66,8 @@ export async function generateAISmartDistribution(params: {
   customFeedback?: string;
 }): Promise<AISuggestionResult> {
   const { clients, activeDrivers, routeType, customFeedback } = params;
-  const baseLat = params.startLat || 25.6866; // Guadalupe / Monterrey default
-  const baseLng = params.startLng || -100.3161;
+  const baseLat = params.startLat || 25.7819168; // Base principal (Apodaca/Guadalupe)
+  const baseLng = params.startLng || -100.191302;
 
   if (!clients || clients.length === 0 || !activeDrivers || activeDrivers.length === 0) {
     return {

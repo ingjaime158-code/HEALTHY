@@ -121,6 +121,8 @@ export const AIRouteSuggestionModal: React.FC<AIRouteSuggestionModalProps> = ({
         clients,
         activeDrivers: selectedDrivers,
         routeType,
+        startLat: 25.7819168,
+        startLng: -100.191302,
         customFeedback: feedback || userFeedbackText
       });
       setAiResult(result);
@@ -616,8 +618,8 @@ const RealMercatorMapVisualizer: React.FC<{
     return { x, y };
   };
 
-  // Base Depot Coords (Guadalupe/Monterrey)
-  const baseXY = mapToXY(25.6866, -100.3161);
+  // Base Depot Coords (Apodaca/Guadalupe Base)
+  const baseXY = mapToXY(25.7819168, -100.191302);
 
   return (
     <div className="relative h-72 md:h-80 w-full bg-slate-950 rounded-lg border border-slate-800/90 overflow-hidden flex items-center justify-center">
