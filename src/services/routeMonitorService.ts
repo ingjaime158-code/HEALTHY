@@ -290,7 +290,8 @@ function calculateHaversineDistance(points: { lat: number; lng: number }[]): num
   for (let i = 0; i < points.length - 1; i++) {
     totalDistance += calcHaversineDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
   }
-  return parseFloat((totalDistance * 1.3).toFixed(2));
+  // 1.52 multiplier reflects realistic urban road detours in Monterrey Zone
+  return parseFloat((totalDistance * 1.52).toFixed(2));
 }
 
 interface OSRMRouteData {
@@ -302,23 +303,94 @@ async function calculateOSRMDrivingData(
   points: { lat: number; lng: number }[]
 ): Promise<OSRMRouteData | null> {
   if (points.length < 2) return null;
-  try {
-    const coordinatesStr = points.map(p => `${p.lng},${p.lat}`).join(';');
-    const url = `http://localhost:5000/route/v1/driving/${coordinatesStr}?overview=false`;
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (data.code === 'Ok' && data.routes && data.routes[0]) {
-      const route = data.routes[0];
-      const distanceKm = parseFloat((route.distance / 1000).toFixed(2));
-      const legDurationsSec = route.legs ? route.legs.map((leg: any) => leg.duration || 0) : [];
-      return { distanceKm, legDurationsSec };
+
+  // Sanitize coordinates
+  const sanitized = points.map(p => ({
+    lat: Number(p.lat) && isFinite(Number(p.lat)) ? Number(p.lat) : 25.7819168,
+    lng: Number(p.lng) && isFinite(Number(p.lng)) ? Number(p.lng) : -100.191302
+  }));
+
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+  const queryOSRM = async (batch: { lat: number; lng: number }[]) => {
+    const coordsStr = batch.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+    const localUrl = `http://localhost:5000/route/v1/driving/${coordsStr}?overview=false`;
+    const remoteUrl = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=false`;
+
+    if (!isHttps) {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 2000);
+        const res = await fetch(localUrl, { signal: controller.signal });
+        clearTimeout(tid);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.code === 'Ok' && data.routes?.[0]) {
+            return data.routes[0];
+          }
+        }
+      } catch (e) {
+        // fallback
+      }
     }
+
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(remoteUrl, { signal: controller.signal });
+      clearTimeout(tid);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.code === 'Ok' && data.routes?.[0]) {
+          return data.routes[0];
+        }
+      }
+    } catch (e) {
+      // fallback
+    }
+
     return null;
+  };
+
+  try {
+    if (sanitized.length <= 25) {
+      const route = await queryOSRM(sanitized);
+      if (route) {
+        const distanceKm = parseFloat((route.distance / 1000).toFixed(2));
+        const legDurationsSec = route.legs ? route.legs.map((leg: any) => leg.duration || 0) : [];
+        return { distanceKm, legDurationsSec };
+      }
+    } else {
+      let totalDist = 0;
+      const allLegs: number[] = [];
+      const segmentSize = 20;
+
+      for (let i = 0; i < sanitized.length - 1; i += segmentSize - 1) {
+        const segment = sanitized.slice(i, i + segmentSize);
+        if (segment.length < 2) break;
+        const route = await queryOSRM(segment);
+        if (route) {
+          totalDist += route.distance || 0;
+          if (route.legs) {
+            route.legs.forEach((leg: any) => allLegs.push(leg.duration || 0));
+          }
+        } else {
+          return null;
+        }
+      }
+
+      if (totalDist > 0) {
+        return {
+          distanceKm: parseFloat((totalDist / 1000).toFixed(2)),
+          legDurationsSec: allLegs
+        };
+      }
+    }
   } catch (err) {
-    console.warn('[routeMonitor] OSRM routing failed, will fallback to Google Maps/Haversine:', err);
-    return null;
+    console.warn('[routeMonitor] OSRM calculation error:', err);
   }
+
+  return null;
 }
 
 export async function calculateGoogleDrivingDistance(
@@ -326,14 +398,14 @@ export async function calculateGoogleDrivingDistance(
 ): Promise<number> {
   if (points.length < 2) return 0;
 
-  // Try local OSRM first
+  // Try OSRM (local or remote HTTPS)
   const osrmData = await calculateOSRMDrivingData(points);
   if (osrmData !== null) {
     return osrmData.distanceKm;
   }
 
   if (typeof google === 'undefined' || !google.maps) {
-    console.warn('[routeMonitor] Google Maps JavaScript API not loaded. Using Haversine.');
+    console.warn('[routeMonitor] Google Maps API not loaded. Using Haversine.');
     return calculateHaversineDistance(points);
   }
 
@@ -397,7 +469,8 @@ export async function calculateGoogleDrivingDistance(
 
 export async function calculateRouteDistance(
   startCoords: string | null,
-  clients: RouteClient[]
+  clients: RouteClient[],
+  includeReturnToBase: boolean = true
 ): Promise<number> {
   const points: { lat: number; lng: number }[] = [];
   const start = startCoords ? parseCoords(startCoords) : null;
@@ -411,6 +484,11 @@ export async function calculateRouteDistance(
   for (const c of clients) {
     const p = parseCoords(c.coords);
     if (p) points.push(p);
+  }
+
+  // Include return leg back to Base Depot for full shift round-trip circuit
+  if (includeReturnToBase && start && points.length > 1) {
+    points.push(start);
   }
 
   return calculateGoogleDrivingDistance(points);

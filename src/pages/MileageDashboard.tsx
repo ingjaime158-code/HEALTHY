@@ -828,7 +828,7 @@ const MileageDashboard: React.FC = () => {
                                         <div className="flex gap-4">
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-300 uppercase">Total KM</span>
-                                                <span className="text-xs font-bold text-slate-600">{latestEvening.records.reduce((s, r) => s + (r.routeKm || 0), 0)} km</span>
+                                                <span className="text-xs font-bold text-slate-600">{parseFloat(latestEvening.records.reduce((s, r) => s + (r.totalKm || r.routeKm || 0), 0).toFixed(1))} km</span>
                                             </div>
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-300 uppercase">Total Clientes</span>
@@ -904,7 +904,7 @@ const MileageDashboard: React.FC = () => {
                                         <div className="flex gap-4">
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-300 uppercase">Total KM</span>
-                                                <span className="text-xs font-bold text-slate-600">{latestMorning.records.reduce((s, r) => s + (r.routeKm || 0), 0)} km</span>
+                                                <span className="text-xs font-bold text-slate-600">{parseFloat(latestMorning.records.reduce((s, r) => s + (r.totalKm || r.routeKm || 0), 0).toFixed(1))} km</span>
                                             </div>
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-300 uppercase">Total Clientes</span>
