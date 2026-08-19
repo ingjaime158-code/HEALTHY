@@ -469,8 +469,7 @@ export async function calculateGoogleDrivingDistance(
 
 export async function calculateRouteDistance(
   startCoords: string | null,
-  clients: RouteClient[],
-  includeReturnToBase: boolean = true
+  clients: RouteClient[]
 ): Promise<number> {
   const points: { lat: number; lng: number }[] = [];
   const start = startCoords ? parseCoords(startCoords) : null;
@@ -484,11 +483,6 @@ export async function calculateRouteDistance(
   for (const c of clients) {
     const p = parseCoords(c.coords);
     if (p) points.push(p);
-  }
-
-  // Include return leg back to Base Depot for full shift round-trip circuit
-  if (includeReturnToBase && start && points.length > 1) {
-    points.push(start);
   }
 
   return calculateGoogleDrivingDistance(points);
