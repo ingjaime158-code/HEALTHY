@@ -279,43 +279,76 @@ export function solveTSP(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Identify the furthest stop from origin to force it as the endpoint
-  let furthestStop: TSPLocation | null = null;
-  let maxDist = -1;
-  let furthestIdx = -1;
-  for (let i = 0; i < validStops.length; i++) {
-    const dist = getHaversineDistance(startLat, startLng, validStops[i].lat, validStops[i].lng);
-    if (dist > maxDist) {
-      maxDist = dist;
-      furthestStop = validStops[i];
-      furthestIdx = i;
+  // Si la ruta vuelve al origen, optimizar como circuito cerrado estándar
+  if (endAtStart) {
+    const nnRoute = nearestNeighborTSP(validStops, startLat, startLng);
+    const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, true);
+    const optNNRoute = optimizeTSPSequence(nnRoute, startLat, startLng, true, false);
+    const optCIRoute = optimizeTSPSequence(ciRoute, startLat, startLng, true, false);
+    const nnDistOpt = calculateRouteDistance(optNNRoute, startLat, startLng, true);
+    const ciDistOpt = calculateRouteDistance(optCIRoute, startLat, startLng, true);
+    const optimizedRoute = nnDistOpt <= ciDistOpt ? optNNRoute : optCIRoute;
+    const finalRoute = [...optimizedRoute, ...invalidStops];
+    return {
+      route: finalRoute,
+      distanceMeters: Math.round(calculateRouteDistance(optimizedRoute, startLat, startLng, true))
+    };
+  }
+
+  // --- Criterio Humano: Evaluación Multi-Candidato para Parada Final ---
+  // Ordenar paradas válidas por distancia al origen (de mayor a menor)
+  const stopsWithDist = validStops.map((stop, idx) => ({
+    stop,
+    idx,
+    distFromOrigin: getHaversineDistance(startLat, startLng, stop.lat, stop.lng)
+  }));
+  stopsWithDist.sort((a, b) => b.distFromOrigin - a.distFromOrigin);
+
+  // Probar los Top N candidatos periféricos más lejanos como posible remate
+  const numCandidates = Math.min(5, validStops.length);
+  const candidates = stopsWithDist.slice(0, numCandidates);
+
+  let bestRoute: TSPLocation[] = [];
+  let bestScore = Infinity;
+  let bestRouteOpenDistance = 0;
+
+  for (const candidate of candidates) {
+    const furthestStop = candidate.stop;
+    const excludeStopId = furthestStop.id;
+
+    const nnRoute = nearestNeighborTSP(validStops, startLat, startLng, excludeStopId);
+    const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, false, excludeStopId);
+
+    nnRoute.push(furthestStop);
+    ciRoute.push(furthestStop);
+
+    const optNNRoute = optimizeTSPSequence(nnRoute, startLat, startLng, false, true);
+    const optCIRoute = optimizeTSPSequence(ciRoute, startLat, startLng, false, true);
+
+    const nnDistOpt = calculateRouteDistance(optNNRoute, startLat, startLng, false);
+    const ciDistOpt = calculateRouteDistance(optCIRoute, startLat, startLng, false);
+
+    const candidateRoute = nnDistOpt <= ciDistOpt ? optNNRoute : optCIRoute;
+    const openDist = Math.min(nnDistOpt, ciDistOpt);
+
+    // Distancia de retorno del punto final al origen
+    const returnDist = getHaversineDistance(startLat, startLng, furthestStop.lat, furthestStop.lng);
+
+    // Puntuación compuesta (Costo del chofer: distancia de entregas + 0.6x distancia de retorno)
+    const compositeScore = openDist + returnDist * 0.6;
+
+    if (compositeScore < bestScore) {
+      bestScore = compositeScore;
+      bestRoute = candidateRoute;
+      bestRouteOpenDistance = openDist;
     }
   }
 
-  const excludeStopId = furthestStop?.id;
-  const nnRoute = nearestNeighborTSP(validStops, startLat, startLng, excludeStopId);
-  const ciRoute = cheapestInsertionTSP(validStops, startLat, startLng, endAtStart, excludeStopId);
-
-  if (furthestStop) {
-    nnRoute.push(furthestStop);
-    ciRoute.push(furthestStop);
-  }
-
-  // Optimize both initial sequences and pick the best one
-  const optNNRoute = optimizeTSPSequence(nnRoute, startLat, startLng, endAtStart, true);
-  const optCIRoute = optimizeTSPSequence(ciRoute, startLat, startLng, endAtStart, true);
-
-  const nnDistOpt = calculateRouteDistance(optNNRoute, startLat, startLng, endAtStart);
-  const ciDistOpt = calculateRouteDistance(optCIRoute, startLat, startLng, endAtStart);
-
-  const optimizedRoute = nnDistOpt <= ciDistOpt ? optNNRoute : optCIRoute;
-
-  const finalRoute = [...optimizedRoute, ...invalidStops];
-  const distance = calculateRouteDistance(optimizedRoute, startLat, startLng, endAtStart);
+  const finalRoute = [...bestRoute, ...invalidStops];
 
   return {
     route: finalRoute,
-    distanceMeters: Math.round(distance)
+    distanceMeters: Math.round(bestRouteOpenDistance)
   };
 }
 
@@ -553,44 +586,80 @@ export function solveTSPWithMatrix(
     return { route: [...invalidStops], distanceMeters: 0 };
   }
 
-  // Find the furthest stop index from origin using the matrix (index 0 is origin, indices 1..N are stops)
-  let maxDist = -1;
-  let furthestIdxInValidStops = -1;
-  for (let i = 0; i < validStops.length; i++) {
-    const matrixIdx = i + 1;
-    const dist = distanceMatrix[0]?.[matrixIdx] ?? 0;
-    if (dist > maxDist) {
-      maxDist = dist;
-      furthestIdxInValidStops = i;
+  // Si la ruta vuelve al origen, optimizar como circuito cerrado estándar
+  if (endAtStart) {
+    const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix);
+    const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, true);
+    const optNNIndices = optimizeTSPSequenceWithMatrix(nnIndices, distanceMatrix, true, false);
+    const optCIIndices = optimizeTSPSequenceWithMatrix(ciIndices, distanceMatrix, true, false);
+    const nnDistOpt = calculateMatrixRouteDistance(optNNIndices, distanceMatrix, true);
+    const ciDistOpt = calculateMatrixRouteDistance(optCIIndices, distanceMatrix, true);
+    const optimizedIndices = nnDistOpt <= ciDistOpt ? optNNIndices : optCIIndices;
+    const optimizedRoute = optimizedIndices.map((idx) => validStops[idx - 1]);
+    const finalRoute = [...optimizedRoute, ...invalidStops];
+    return {
+      route: finalRoute,
+      distanceMeters: Math.round(calculateMatrixRouteDistance(optimizedIndices, distanceMatrix, true))
+    };
+  }
+
+  // --- Criterio Humano: Evaluación Multi-Candidato para Parada Final con Matriz ---
+  // Ordenar paradas válidas por distancia vial desde el origen (índice 0 en la matriz)
+  const stopsWithDist = validStops.map((stop, idx) => {
+    const matrixIdx = idx + 1;
+    return {
+      stop,
+      validIdx: idx,
+      matrixIdx,
+      distFromOrigin: distanceMatrix[0]?.[matrixIdx] ?? 0
+    };
+  });
+  stopsWithDist.sort((a, b) => b.distFromOrigin - a.distFromOrigin);
+
+  // Probar los Top N candidatos periféricos más lejanos como posible remate
+  const numCandidates = Math.min(5, validStops.length);
+  const candidates = stopsWithDist.slice(0, numCandidates);
+
+  let bestIndices: number[] = [];
+  let bestScore = Infinity;
+  let bestRouteOpenDistance = 0;
+
+  for (const candidate of candidates) {
+    const excludeIndex = candidate.matrixIdx;
+
+    const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix, excludeIndex);
+    const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, false, excludeIndex);
+
+    nnIndices.push(excludeIndex);
+    ciIndices.push(excludeIndex);
+
+    const optNNIndices = optimizeTSPSequenceWithMatrix(nnIndices, distanceMatrix, false, true);
+    const optCIIndices = optimizeTSPSequenceWithMatrix(ciIndices, distanceMatrix, false, true);
+
+    const nnDistOpt = calculateMatrixRouteDistance(optNNIndices, distanceMatrix, false);
+    const ciDistOpt = calculateMatrixRouteDistance(optCIIndices, distanceMatrix, false);
+
+    const candidateIndices = nnDistOpt <= ciDistOpt ? optNNIndices : optCIIndices;
+    const openDist = Math.min(nnDistOpt, ciDistOpt);
+
+    // Distancia de regreso del punto final al origen según la matriz
+    const returnDist = distanceMatrix[candidate.matrixIdx]?.[0] ?? candidate.distFromOrigin;
+
+    // Puntuación compuesta (Costo del chofer: distancia de entregas + 0.6x distancia de retorno)
+    const compositeScore = openDist + returnDist * 0.6;
+
+    if (compositeScore < bestScore) {
+      bestScore = compositeScore;
+      bestIndices = candidateIndices;
+      bestRouteOpenDistance = openDist;
     }
   }
 
-  const excludeIndex = furthestIdxInValidStops !== -1 ? furthestIdxInValidStops + 1 : undefined;
-
-  const nnIndices = nearestNeighborTSPWithMatrix(validStops.length, distanceMatrix, excludeIndex);
-  const ciIndices = cheapestInsertionTSPWithMatrix(validStops.length, distanceMatrix, endAtStart, excludeIndex);
-
-  if (excludeIndex !== undefined) {
-    nnIndices.push(excludeIndex);
-    ciIndices.push(excludeIndex);
-  }
-
-  // Optimize both initial sequences and pick the best one
-  const optNNIndices = optimizeTSPSequenceWithMatrix(nnIndices, distanceMatrix, endAtStart, true);
-  const optCIIndices = optimizeTSPSequenceWithMatrix(ciIndices, distanceMatrix, endAtStart, true);
-
-  const nnDistOpt = calculateMatrixRouteDistance(optNNIndices, distanceMatrix, endAtStart);
-  const ciDistOpt = calculateMatrixRouteDistance(optCIIndices, distanceMatrix, endAtStart);
-
-  const optimizedIndices = nnDistOpt <= ciDistOpt ? optNNIndices : optCIIndices;
-
-  const optimizedRoute = optimizedIndices.map((idx) => validStops[idx - 1]);
-
+  const optimizedRoute = bestIndices.map((idx) => validStops[idx - 1]);
   const finalRoute = [...optimizedRoute, ...invalidStops];
-  const distance = calculateMatrixRouteDistance(optimizedIndices, distanceMatrix, endAtStart);
 
   return {
     route: finalRoute,
-    distanceMeters: Math.round(distance)
+    distanceMeters: Math.round(bestRouteOpenDistance)
   };
 }
