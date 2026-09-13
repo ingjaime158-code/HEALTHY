@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient';
-import { adminSelect, adminInsert, adminUpdate } from '../supabaseAdmin';
+import { adminSelect, adminInsert, adminUpdate, adminUpsertBatch } from '../supabaseAdmin';
 import { Business } from './types';
 
 // --- Businesses ---
@@ -91,6 +91,29 @@ export const updateBusiness = async (business: Business): Promise<boolean> => {
         location_link: business.locationLink || null,
         route_type: business.routeType || null
     });
+};
+
+export const updateBusinessesBatch = async (businesses: Business[]): Promise<boolean> => {
+    if (!businesses || businesses.length === 0) return true;
+    const items = businesses.map(b => ({
+        id: b.id,
+        name: b.name,
+        type: b.type,
+        location: b.location,
+        lat: b.lat,
+        lng: b.lng,
+        phone: b.phone,
+        email: b.email,
+        rfc: b.rfc,
+        parent_id: b.parentId || null,
+        base_rate_0_6km: b.baseRate0to6 || null,
+        base_rate_6_15km: b.baseRate6to15 || null,
+        extra_km_rate: b.extraKmRate || null,
+        wait_rate_per_min: b.waitRatePerMin || null,
+        location_link: b.locationLink || null,
+        route_type: b.routeType || null
+    }));
+    return await adminUpsertBatch('businesses', items);
 };
 
 export const deleteBusiness = async (id: string): Promise<{ success: boolean, message?: string }> => {

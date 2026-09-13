@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBusinesses, updateBusiness, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin, saveRouteDistributionTelemetry } from '../services/dataService';
+import { getBusinesses, updateBusiness, updateBusinessesBatch, addBusiness, getDrivers, getBusinessOrigins, Driver, Business, BusinessOrigin, saveRouteDistributionTelemetry } from '../services/dataService';
 import { pushToGoogleSheets, fetchClientsFromGoogleSheet, distributeRoutesToGoogleSheets } from '../services/googleSheetsService';
 import { solveTSP, solveTSPWithMatrix } from '../utils/routeOptimizer';
 import { AIRouteSuggestionModal } from '../components/AIRouteSuggestionModal';
@@ -172,8 +172,20 @@ const ClientManager: React.FC = () => {
   const [isDistributing, setIsDistributing] = useState<boolean>(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
 
-  // Modal State for Column Editing
+  // Pagination States
+  const [pageSize, setPageSize] = useState<number | 'ALL'>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Modal State for Column Editing & Full Client Editing
   const [editingClient, setEditingClient] = useState<any | null>(null);
+  const [modalName, setModalName] = useState<string>('');
+  const [modalPhone, setModalPhone] = useState<string>('');
+  const [modalLocation, setModalLocation] = useState<string>('');
+  const [modalLat, setModalLat] = useState<number>(0);
+  const [modalLng, setModalLng] = useState<number>(0);
+  const [modalLocationLink, setModalLocationLink] = useState<string>('');
+  const [modalRouteType, setModalRouteType] = useState<'Matutina' | 'Vespertina'>('Matutina');
+  const [isGeocoding, setIsGeocoding] = useState<boolean>(false);
   const [modalDriver, setModalDriver] = useState<string>('SIN ASIGNAR');
   const [modalExclusions, setModalExclusions] = useState<string>('Ninguna');
 
@@ -197,6 +209,46 @@ const ClientManager: React.FC = () => {
       }
     }
   }, [modalNewPackage]);
+
+  // Reset pagination on filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedRoute, selectedStatus, driverFilter, planFilter, pageSize]);
+
+  const handleGeocodeAddress = () => {
+    if (!modalLocation.trim()) {
+      showFeedbackToast('⚠️ Ingresa una dirección primero para geocodificar.');
+      return;
+    }
+    setIsGeocoding(true);
+    try {
+      if (typeof google === 'undefined' || !google.maps || !google.maps.Geocoder) {
+        showFeedbackToast('❌ Google Maps no está disponible en este momento.');
+        setIsGeocoding(false);
+        return;
+      }
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: modalLocation.trim() }, (results: any, status: any) => {
+        setIsGeocoding(false);
+        if (status === 'OK' && results && results[0]) {
+          const loc = results[0].geometry.location;
+          const newLat = parseFloat(loc.lat().toFixed(6));
+          const newLng = parseFloat(loc.lng().toFixed(6));
+          setModalLat(newLat);
+          setModalLng(newLng);
+          const newLink = `https://www.google.com/maps?q=${newLat},${newLng}`;
+          setModalLocationLink(newLink);
+          showFeedbackToast('📍 Coordenadas detectadas y actualizadas.');
+        } else {
+          showFeedbackToast('❌ No se encontró ubicación para esa dirección.');
+        }
+      });
+    } catch (err) {
+      setIsGeocoding(false);
+      console.error(err);
+      showFeedbackToast('❌ Error en el servicio de geocodificación.');
+    }
+  };
 
   useEffect(() => {
     // Keep day index updated
@@ -697,6 +749,7 @@ const ClientManager: React.FC = () => {
     try {
       showFeedbackToast(`💾 Guardando orden de entrega en Supabase...`);
       
+      const businessesToUpdate: Business[] = [];
       for (let index = 0; index < localOptimizeStops.length; index++) {
         const stop = localOptimizeStops[index];
         const biz = dbClients.find(c => c.id === stop.id);
@@ -706,20 +759,16 @@ const ClientManager: React.FC = () => {
         currentConfig.routeOrder = index + 1; // 1-indexed
         const updatedEmail = JSON.stringify(currentConfig);
         
-        const success = await updateBusiness({
+        businessesToUpdate.push({
           ...biz,
           email: updatedEmail
         });
-        
+      }
+
+      if (businessesToUpdate.length > 0) {
+        const success = await updateBusinessesBatch(businessesToUpdate);
         if (!success) {
-          console.warn(`[SaveRouteOrder] Failed to update client ${biz.name}. Retrying once...`);
-          const retrySuccess = await updateBusiness({
-            ...biz,
-            email: updatedEmail
-          });
-          if (!retrySuccess) {
-            throw new Error(`Error de conexión al actualizar el cliente "${biz.name}". Intenta de nuevo.`);
-          }
+          throw new Error(`Error al actualizar el orden de los ${businessesToUpdate.length} clientes en lote.`);
         }
       }
       
@@ -860,6 +909,8 @@ const ClientManager: React.FC = () => {
       const filtered = filteredClients;
       const updatedClients = [...dbClients];
 
+      const batchList: Business[] = [];
+
       // Update filtered clients
       for (const biz of filtered) {
         let config = {
@@ -886,8 +937,7 @@ const ClientManager: React.FC = () => {
           updatedClients[idx].email = updatedEmail;
         }
 
-        // Save to DB
-        await updateBusiness({
+        batchList.push({
           ...biz,
           email: updatedEmail
         });
@@ -905,9 +955,13 @@ const ClientManager: React.FC = () => {
           siglas: config.siglas,
           driver: config.driver === 'SIN ASIGNAR' ? undefined : config.driver,
           isActive: active,
-          bags: calculateBagsForClient(biz.email),
-          tiempos: getClientTiempos(biz.email)
+          bags: calculateBagsForClient(updatedEmail),
+          tiempos: getClientTiempos(updatedEmail)
         });
+      }
+
+      if (batchList.length > 0) {
+        await updateBusinessesBatch(batchList);
       }
 
       setDbClients(updatedClients);
@@ -1043,16 +1097,37 @@ const ClientManager: React.FC = () => {
           .trim();
       };
 
+      const normalizeAddress = (addr: string): string => {
+        if (!addr) return '';
+        return addr.toUpperCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^\w\s]/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
       let newCount = 0;
       let updatedCount = 0;
+      const batchUpdates: Business[] = [];
 
       const driverNames = systemDrivers.map(d => d.name.toUpperCase().trim());
 
       for (const sheetClient of sheetClients) {
         const normalizedSheetName = normalizeName(sheetClient.name);
+        const normalizedSheetAddress = normalizeAddress(sheetClient.address);
         
-        const matchedDbClient = activeRouteDbClients.find(
-          c => normalizeName(c.name) === normalizedSheetName
+        // Robust composite match: First try exact Name + Address
+        const matchedDbClient = activeRouteDbClients.find(c => {
+          const cName = normalizeName(c.name);
+          if (cName !== normalizedSheetName) return false;
+          const cAddr = normalizeAddress(c.location || '');
+          if (!normalizedSheetAddress || !cAddr) return true;
+          return cAddr === normalizedSheetAddress || cAddr.includes(normalizedSheetAddress) || normalizedSheetAddress.includes(cAddr);
+        }) || (
+          // Fallback: match by name only if exactly 1 client has that name
+          activeRouteDbClients.filter(c => normalizeName(c.name) === normalizedSheetName).length === 1
+            ? activeRouteDbClients.find(c => normalizeName(c.name) === normalizedSheetName)
+            : undefined
         );
 
         const { lat, lng } = parseCoordinates(sheetClient.coords);
@@ -1104,7 +1179,7 @@ const ClientManager: React.FC = () => {
 
             const updatedEmail = JSON.stringify(dbConfig);
 
-            await updateClientInStore({
+            batchUpdates.push({
               ...matchedDbClient,
               phone: sheetClient.phone || matchedDbClient.phone,
               location: sheetClient.address || matchedDbClient.location,
@@ -1157,16 +1232,22 @@ const ClientManager: React.FC = () => {
         }
       }
 
+      // Execute batch updates for modified clients
+      if (batchUpdates.length > 0) {
+        await updateBusinessesBatch(batchUpdates);
+      }
+
       // DESACTIVACIÓN AUTORITATIVA: Desactivar clientes de Supabase que ya no figuran activos en Excel
-      const sheetActiveNamesStrict = new Set(
+      const sheetActiveKeysStrict = new Set(
         sheetClients
           .filter(sc => sc.isActive)
-          .map(sc => sc.name.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]/g, '').trim())
+          .map(sc => `${normalizeName(sc.name)}|||${normalizeAddress(sc.address)}`)
       );
 
       const latestBusinesses = await getBusinesses();
       const activeRouteDbClientsCurrent = latestBusinesses.filter(c => c.routeType === selectedRoute);
       let autoritativeDeactivated = 0;
+      const deactivationBatch: Business[] = [];
 
       for (const dbc of activeRouteDbClientsCurrent) {
         let dbConfig = parseClientProfile(dbc.email);
@@ -1178,17 +1259,25 @@ const ClientManager: React.FC = () => {
             continue;
           }
 
-          const strictDbName = dbc.name.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]/g, '').trim();
-          
-          if (!sheetActiveNamesStrict.has(strictDbName)) {
+          const dbKey = `${normalizeName(dbc.name)}|||${normalizeAddress(dbc.location || '')}`;
+          const dbName = normalizeName(dbc.name);
+
+          const hasExactActive = sheetActiveKeysStrict.has(dbKey);
+          const hasAnyActiveWithName = Array.from(sheetActiveKeysStrict).some(k => k.startsWith(`${dbName}|||`));
+
+          if (!hasExactActive && !hasAnyActiveWithName) {
             dbConfig.isActive = false;
-            await updateBusiness({
+            deactivationBatch.push({
               ...dbc,
               email: JSON.stringify(dbConfig)
             });
             autoritativeDeactivated++;
           }
         }
+      }
+
+      if (deactivationBatch.length > 0) {
+        await updateBusinessesBatch(deactivationBatch);
       }
 
       await fetchClientsAndDrivers(true);
@@ -1443,8 +1532,23 @@ const ClientManager: React.FC = () => {
     return filtered;
   }, [parsedClients, searchQuery, selectedRoute, selectedStatus, driverFilter, planFilter, sortField, sortDirection]);
 
+  const totalPages = pageSize === 'ALL' ? 1 : Math.max(1, Math.ceil(filteredClients.length / pageSize));
+
+  const paginatedClients = useMemo(() => {
+    if (pageSize === 'ALL') return filteredClients;
+    const start = (currentPage - 1) * pageSize;
+    return filteredClients.slice(start, start + pageSize);
+  }, [filteredClients, currentPage, pageSize]);
+
   const openEditModal = (client: any) => {
     setEditingClient(client);
+    setModalName(client.name || '');
+    setModalPhone(client.phone || '');
+    setModalLocation(client.location || '');
+    setModalLat(client.lat || 0);
+    setModalLng(client.lng || 0);
+    setModalLocationLink(client.locationLink || '');
+    setModalRouteType(client.routeType || selectedRoute || 'Matutina');
     
     // Parse client config from biz.email JSON string
     let planType = '';
@@ -1521,8 +1625,15 @@ const ClientManager: React.FC = () => {
     const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2;
     const activeBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
 
-    // Save configuration in Supabase & update local state
-    await updateClientConfig(editingClient.id, {
+    const finalName = (modalName || editingClient.name).trim().toUpperCase();
+    const finalPhone = modalPhone.trim();
+    const finalLocation = modalLocation.trim();
+    const finalLocationLink = modalLocationLink.trim();
+    const finalRouteType = modalRouteType;
+
+    const baseConfig = parseClientProfile(editingClient.email);
+    const updatedConfig = {
+      ...baseConfig,
       planType: finalPlanType.toUpperCase(),
       plansCount: totalPlansCount,
       siglas: finalSiglas.toUpperCase(),
@@ -1533,15 +1644,34 @@ const ClientManager: React.FC = () => {
       tiempos: sumTiempos,
       package: finalPackage,
       plans: modalPlansList
-    });
+    };
+
+    const updatedClientObject: Business = {
+      ...editingClient,
+      name: finalName,
+      phone: finalPhone,
+      location: finalLocation,
+      lat: modalLat,
+      lng: modalLng,
+      locationLink: finalLocationLink,
+      routeType: finalRouteType,
+      email: JSON.stringify(updatedConfig)
+    };
+
+    // Save atomically in Supabase & Zustand store
+    const success = await updateClientInStore(updatedClientObject);
+    if (!success) {
+      showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
+      return;
+    }
 
     // Notify GAS Webhook to sync Google Sheets
-    pushToGoogleSheets(editingClient.routeType as 'Matutina' | 'Vespertina', {
-      name: editingClient.name,
-      phone: editingClient.phone || '',
-      address: editingClient.location || '',
-      locationLink: editingClient.locationLink || '',
-      coords: `${editingClient.lat}, ${editingClient.lng}`,
+    pushToGoogleSheets(finalRouteType as 'Matutina' | 'Vespertina', {
+      name: finalName,
+      phone: finalPhone,
+      address: finalLocation,
+      locationLink: finalLocationLink,
+      coords: modalLat && modalLng ? `${modalLat}, ${modalLng}` : '',
       planType: finalPlanType.toUpperCase(),
       plansCount: totalPlansCount,
       exclusions: modalExclusions,
@@ -1553,7 +1683,7 @@ const ClientManager: React.FC = () => {
     });
 
     setEditingClient(null);
-    showFeedbackToast(`💾 ¡Configuración de ${editingClient.name.toUpperCase()} guardada y sincronizada!`);
+    showFeedbackToast(`💾 ¡Cliente ${finalName} actualizado y sincronizado!`);
   };
 
   return (
@@ -1868,6 +1998,7 @@ const ClientManager: React.FC = () => {
               <p className="text-xs font-bold text-slate-500 mt-2">No se encontraron clientes para esta sección.</p>
             </div>
           ) : (
+            <>
             <div className="flex flex-col gap-2 max-h-[70vh] overflow-y-auto pr-1.5 scrollbar-thin">
               {/* Header Titles (Hidden on Mobile) */}
               <div className="hidden lg:flex items-center gap-4 px-4 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-[9px] font-black text-slate-400 uppercase tracking-widest select-none">
@@ -1942,7 +2073,7 @@ const ClientManager: React.FC = () => {
               </div>
 
               {/* Rows */}
-              {filteredClients.map((biz) => {
+              {paginatedClients.map((biz) => {
                 const { planType, plansCount, exclusions, siglas, driver, isActive } = biz;
 
 
@@ -2032,11 +2163,35 @@ const ClientManager: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* B. Address Card Column */}
+                        {/* B. Address Card Column with GPS Health Semaphore */}
                         <div className="w-full lg:flex-1 min-w-0 text-xs text-slate-700 font-bold flex items-start gap-2 p-1.5 px-2.5 rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100/50 hover:border-slate-200 transition-all duration-200" title={biz.location}>
-                          <span className="material-symbols-outlined text-[16px] text-purple-650 bg-purple-100 p-1 rounded-lg shrink-0 shadow-sm border border-purple-200/30">location_on</span>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-[8px] font-black text-slate-455 uppercase tracking-widest leading-none mb-0.5">Dirección</span>
+                          <span className={`material-symbols-outlined text-[16px] p-1 rounded-lg shrink-0 shadow-sm border ${
+                            biz.lat && biz.lng && (biz.lat !== 0 || biz.lng !== 0)
+                              ? 'text-emerald-650 bg-emerald-100 border-emerald-200/50'
+                              : 'text-rose-650 bg-rose-100 border-rose-200/50'
+                          }`}>
+                            {biz.lat && biz.lng && (biz.lat !== 0 || biz.lng !== 0) ? 'location_on' : 'wrong_location'}
+                          </span>
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="text-[8px] font-black text-slate-450 uppercase tracking-widest leading-none">Dirección</span>
+                              {biz.lat && biz.lng && (biz.lat !== 0 || biz.lng !== 0) ? (
+                                <span className="inline-flex items-center gap-1 text-[8px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 uppercase tracking-wider" title={`GPS: ${biz.lat}, ${biz.lng}`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  GPS OK
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(biz)}
+                                  className="inline-flex items-center gap-1 text-[8px] font-black text-rose-700 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 uppercase tracking-wider transition-colors cursor-pointer"
+                                  title="Haz clic para geocodificar y asignar coordenadas"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                  Sin GPS • Geocodificar
+                                </button>
+                              )}
+                            </div>
                             <span className="text-[11px] md:text-xs font-black text-slate-800 leading-tight break-words">
                               {biz.location || "Sin dirección registrada"}
                             </span>
@@ -2125,6 +2280,72 @@ const ClientManager: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Pagination Controls */}
+            {filteredClients.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-600">
+                  <span>Mostrar</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                    className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-black text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-600 cursor-pointer"
+                  >
+                    <option value={25}>25 por página</option>
+                    <option value={50}>50 por página</option>
+                    <option value={100}>100 por página</option>
+                    <option value="ALL">Mostrar Todos ({filteredClients.length})</option>
+                  </select>
+                  <span className="text-slate-300">|</span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    Mostrando {pageSize === 'ALL' ? `1 - ${filteredClients.length}` : `${Math.min((currentPage - 1) * (pageSize as number) + 1, filteredClients.length)} - ${Math.min((currentPage) * (pageSize as number), filteredClients.length)}`} de <strong className="text-slate-800 font-black">{filteredClients.length}</strong> clientes
+                  </span>
+                </div>
+
+                {pageSize !== 'ALL' && totalPages > 1 && (
+                  <div className="flex items-center gap-1 select-none">
+                    <button
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-700"
+                      title="Primera Página"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">first_page</span>
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-700"
+                      title="Página Anterior"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                    </button>
+
+                    <span className="px-3 py-1 text-xs font-black text-purple-700 bg-purple-50 border border-purple-200 rounded-lg">
+                      {currentPage} / {totalPages}
+                    </span>
+
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-700"
+                      title="Página Siguiente"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-700"
+                      title="Última Página"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">last_page</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
@@ -2162,23 +2383,110 @@ const ClientManager: React.FC = () => {
               {/* Modal Body */}
               <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
                 
-                {/* Client Information Banner */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-white/40">Datos del Cliente</span>
-                    <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                      isMorning 
-                        ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' 
-                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                    }`}>
-                      {isMorning ? '🌅 Matutina (L/J)' : '🌇 Vespertina (D/M)'}
-                    </span>
+                {/* Client General Info Editable Section */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3.5">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px] text-purple-400">person</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-300">Datos Generales del Cliente</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-[9px] font-bold text-white/60 uppercase">Ruta:</label>
+                      <select
+                        value={modalRouteType}
+                        onChange={(e) => setModalRouteType(e.target.value as 'Matutina' | 'Vespertina')}
+                        className="bg-slate-900 border border-white/20 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
+                      >
+                        <option value="Matutina">🌅 Matutina (L/J)</option>
+                        <option value="Vespertina">🌇 Vespertina (D/M)</option>
+                      </select>
+                    </div>
                   </div>
-                  
-                  <div className="space-y-1 mt-0.5">
-                    <div className="flex items-start gap-1.5 text-[11px] font-semibold text-white/80">
-                      <span className="material-symbols-outlined text-purple-400 text-[15px] shrink-0 mt-0.5">location_on</span>
-                      <span>{editingClient.location}</span>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-wider text-white/55 mb-1">Nombre Completo</label>
+                      <input
+                        type="text"
+                        value={modalName}
+                        onChange={(e) => setModalName(e.target.value.toUpperCase())}
+                        className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500 uppercase transition-all"
+                        placeholder="Nombre del cliente"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-wider text-white/55 mb-1">Teléfono</label>
+                      <input
+                        type="text"
+                        value={modalPhone}
+                        onChange={(e) => setModalPhone(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                        placeholder="Teléfono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[9px] font-black uppercase tracking-wider text-white/55">Dirección de Entrega</label>
+                      <button
+                        type="button"
+                        onClick={handleGeocodeAddress}
+                        disabled={isGeocoding}
+                        className="inline-flex items-center gap-1 text-[9px] font-black text-sky-300 hover:text-sky-200 bg-sky-500/20 hover:bg-sky-500/30 px-2.5 py-1 rounded-lg border border-sky-500/30 transition-all uppercase tracking-wider cursor-pointer active:scale-95 disabled:opacity-50"
+                        title="Obtener coordenadas geográficas de esta dirección automáticamente"
+                      >
+                        <span className={`material-symbols-outlined text-[13px] ${isGeocoding ? 'animate-spin' : ''}`}>my_location</span>
+                        <span>{isGeocoding ? 'Geocodificando...' : 'Geocodificar Dirección'}</span>
+                      </button>
+                    </div>
+                    <textarea
+                      value={modalLocation}
+                      onChange={(e) => setModalLocation(e.target.value)}
+                      rows={2}
+                      className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                      placeholder="Calle, Número, Colonia, Municipio..."
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[9px] font-black uppercase tracking-wider text-white/55">Coordenadas GPS</label>
+                        {modalLat && modalLng && (modalLat !== 0 || modalLng !== 0) ? (
+                          <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">● Coordenadas OK</span>
+                        ) : (
+                          <span className="text-[8px] font-black text-rose-400 uppercase tracking-widest">● Sin Coordenadas</span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step="0.000001"
+                          value={modalLat || ''}
+                          onChange={(e) => setModalLat(parseFloat(e.target.value) || 0)}
+                          className="w-1/2 bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          placeholder="Latitud"
+                        />
+                        <input
+                          type="number"
+                          step="0.000001"
+                          value={modalLng || ''}
+                          onChange={(e) => setModalLng(parseFloat(e.target.value) || 0)}
+                          className="w-1/2 bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          placeholder="Longitud"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-wider text-white/55 mb-1">Link de Google Maps</label>
+                      <input
+                        type="text"
+                        value={modalLocationLink}
+                        onChange={(e) => setModalLocationLink(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                        placeholder="https://maps.google.com/..."
+                      />
                     </div>
                   </div>
                 </div>

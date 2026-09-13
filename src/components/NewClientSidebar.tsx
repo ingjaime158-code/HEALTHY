@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMap } from '@vis.gl/react-google-maps';
 import { useAppStore } from '../store/useStore';
-import { addBusiness, getBusinesses, getDrivers, Driver } from '../services/dataService';
+import { addBusiness, getBusinesses, getDrivers, Driver, Business } from '../services/dataService';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
 import { parseClientProfile, serializeClientProfile } from '../utils/clientProfile';
 import { useHealthyDreamsStore } from '../store/useHealthyDreamsStore';
@@ -125,6 +125,94 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
     const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2;
     const activeBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
 
+    // Zustand system clients for duplicate detection
+    const systemClients = useHealthyDreamsStore(state => state.clients);
+    const fetchClientsAndDrivers = useHealthyDreamsStore(state => state.fetchClientsAndDrivers);
+
+    useEffect(() => {
+        fetchClientsAndDrivers();
+    }, [fetchClientsAndDrivers]);
+
+    const cleanString = (str: string) =>
+        (str || '')
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+
+    const cleanPhone = (phone: string) =>
+        (phone || '').replace(/\D/g, '');
+
+    const duplicateStatus = useMemo(() => {
+        const rawName = (newClient.name || '').trim();
+        const normName = cleanString(rawName);
+        const rawAddress = (newClient.address || '').trim();
+        const normAddress = cleanString(rawAddress);
+        const rawPhone = cleanPhone(newClient.phone || '');
+
+        if (!normName && rawPhone.length < 10) {
+            return null;
+        }
+
+        let exactMatch: Business | null = null;
+        let recurringMatch: Business | null = null;
+
+        for (const c of systemClients) {
+            const cNormName = cleanString(c.name || '');
+            const cNormAddress = cleanString(c.location || '');
+            const cNormPhone = cleanPhone(c.phone || '');
+
+            // Phone exact match (at least 10 digits)
+            const isSamePhone = rawPhone.length >= 10 && cNormPhone.length >= 10 && (cNormPhone.includes(rawPhone) || rawPhone.includes(cNormPhone));
+
+            // Name match
+            const isSameName = normName.length >= 3 && cNormName.length >= 3 && normName === cNormName;
+
+            // Address match
+            const isSameAddress = normAddress.length >= 5 && cNormAddress.length >= 5 && (
+                normAddress === cNormAddress ||
+                normAddress.includes(cNormAddress) ||
+                cNormAddress.includes(normAddress)
+            );
+
+            if ((isSameName && isSameAddress) || (isSamePhone && rawPhone.length >= 10)) {
+                exactMatch = c;
+                break;
+            }
+
+            if (isSameName && normAddress.length >= 5 && !isSameAddress) {
+                recurringMatch = c;
+            }
+        }
+
+        if (exactMatch) {
+            let isActive = true;
+            try {
+                if (exactMatch.email && exactMatch.email.startsWith('{')) {
+                    const parsed = JSON.parse(exactMatch.email);
+                    if (parsed.isActive === false) isActive = false;
+                }
+            } catch (e) {}
+
+            return {
+                type: 'EXACT' as const,
+                client: exactMatch,
+                isActive,
+                message: `Ya existe un cliente con los mismos datos: "${exactMatch.name}" en Ruta ${exactMatch.routeType || 'Sin Ruta'} (${isActive ? 'Activo' : 'Inactivo'}). Dirección: "${exactMatch.location || 'Sin dirección registrada'}".`
+            };
+        }
+
+        if (recurringMatch) {
+            return {
+                type: 'RECURRING' as const,
+                client: recurringMatch,
+                message: `Cliente recurrente detectado: "${recurringMatch.name}" ya existe con dirección "${recurringMatch.location || 'N/A'}". Esta nueva dirección se registrará como sucursal o dirección adicional válida.`
+            };
+        }
+
+        return null;
+    }, [newClient.name, newClient.address, newClient.phone, systemClients]);
+
     const handleClearAndReset = () => {
         resetNewClient();
         setSelectingFor(null);
@@ -180,6 +268,27 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                             </button>
                         </div>
                     )}
+                    {duplicateStatus && duplicateStatus.type === 'EXACT' && (
+                        <div className="bg-red-500/15 border border-red-500/40 text-red-300 text-xs rounded-xl p-3.5 flex flex-col gap-1.5 font-medium shadow-lg shadow-red-950/20">
+                            <div className="flex items-center gap-2 font-bold text-red-200 uppercase tracking-wide">
+                                <span className="material-symbols-outlined text-[18px] text-red-400">warning</span>
+                                <span>Cliente Duplicado Detectado</span>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-red-200/90">{duplicateStatus.message}</p>
+                            <span className="text-[10px] text-red-300/70 font-semibold italic">El registro está bloqueado para evitar datos duplicados. Si deseas modificar este cliente, edítalo desde Gestión de Clientes.</span>
+                        </div>
+                    )}
+
+                    {duplicateStatus && duplicateStatus.type === 'RECURRING' && (
+                        <div className="bg-sky-500/15 border border-sky-500/40 text-sky-200 text-xs rounded-xl p-3.5 flex flex-col gap-1.5 font-medium shadow-lg shadow-sky-950/20">
+                            <div className="flex items-center gap-2 font-bold text-sky-300 uppercase tracking-wide">
+                                <span className="material-symbols-outlined text-[18px] text-sky-400">add_location_alt</span>
+                                <span>Nueva Dirección para Cliente Recurrente</span>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-sky-200/90">{duplicateStatus.message}</p>
+                        </div>
+                    )}
+
                     <div>
                         <label className="block text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider">Nombre del Cliente</label>
                         <input
@@ -604,6 +713,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
 
                     <button 
                         onClick={async () => {
+                            if (duplicateStatus?.type === 'EXACT') return showToast('Registro bloqueado: este cliente ya existe en el sistema', 'error');
                             if (!newClient.name) return showToast('El nombre es requerido', 'error');
                             if (plansList.length === 0) return showToast('Debe agregar al menos un plan', 'error');
                             setCreatingTrip(true);
@@ -708,7 +818,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 setCreatingTrip(false);
                             }
                         }}
-                        disabled={creatingTrip || plansList.length === 0}
+                        disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
                         className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <span className="material-symbols-outlined font-bold">wb_twilight</span>
@@ -717,6 +827,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
 
                     <button 
                         onClick={async () => {
+                            if (duplicateStatus?.type === 'EXACT') return showToast('Registro bloqueado: este cliente ya existe en el sistema', 'error');
                             if (!newClient.name) return showToast('El nombre es requerido', 'error');
                             if (plansList.length === 0) return showToast('Debe agregar al menos un plan', 'error');
                             setCreatingTrip(true);
@@ -820,7 +931,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 setCreatingTrip(false);
                             }
                         }}
-                        disabled={creatingTrip || plansList.length === 0}
+                        disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
                         className="w-full py-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-orange-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <span className="material-symbols-outlined font-bold">wb_sunny</span>

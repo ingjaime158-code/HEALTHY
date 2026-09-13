@@ -120,3 +120,33 @@ export async function adminCreateAuthUser(email: string, password: string): Prom
     const data = await res.json();
     return { id: data.id };
 }
+
+/**
+ * Upserts a batch of rows in a single HTTP request using service_role key.
+ * Bypasses RLS and eliminates N+1 sequential requests.
+ */
+export async function adminUpsertBatch(table: string, items: any[]): Promise<boolean> {
+    if (!items || items.length === 0) return true;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const url = `${supabaseUrl}/rest/v1/${table}`;
+    const headers = {
+        ...getHeaders(),
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+    };
+
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const res = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(chunk),
+        });
+        if (!res.ok) {
+            console.error(`[adminUpsertBatch] ${table} error on chunk starting at ${i}:`, res.status, await res.text());
+            return false;
+        }
+    }
+    return true;
+}
+
