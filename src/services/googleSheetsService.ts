@@ -56,6 +56,12 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
     }
 
     try {
+        const finalPlanType = data.planType || 'HEALTHY';
+        const finalBags = data.bags !== undefined && data.bags > 0 ? data.bags : 1;
+        const finalTiempos = data.tiempos !== undefined && data.tiempos > 0 ? data.tiempos : 1;
+        const finalExclusions = data.exclusions || 'Ninguna';
+        const finalDriver = (data.driver && data.driver !== 'SIN ASIGNAR') ? data.driver : '';
+
         // Build an enriched payload with multiple key formats to guarantee 
         // automatic column mapping in Google Sheets, regardless of header casing or language.
         const enrichedPayload = {
@@ -113,31 +119,31 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
             'coordenadas': data.coords,
 
             // Plan Type variations
-            'PLAN ALIMENTICIO': data.planType,
-            'plan alimenticio': data.planType,
-            'planAlimenticio': data.planType,
-            'plan_alimenticio': data.planType,
-            'plan': data.planType,
-            'PLAN': data.planType,
-            'planType': data.planType,
-            'plan_type': data.planType,
-            'PLAN TYPE': data.planType,
-            'plan type': data.planType,
+            'PLAN ALIMENTICIO': finalPlanType,
+            'plan alimenticio': finalPlanType,
+            'planAlimenticio': finalPlanType,
+            'plan_alimenticio': finalPlanType,
+            'plan': finalPlanType,
+            'PLAN': finalPlanType,
+            'planType': finalPlanType,
+            'plan_type': finalPlanType,
+            'PLAN TYPE': finalPlanType,
+            'plan type': finalPlanType,
 
             // Bags variations
-            'BOLSAS': data.bags,
-            'bolsas': data.bags,
-            'CANTIDAD DE BOLSAS': data.bags,
-            'cantidad de bolsas': data.bags,
-            'cantidadBolsas': data.bags,
-            'cantidad_de_bolsas': data.bags,
+            'BOLSAS': finalBags,
+            'bolsas': finalBags,
+            'CANTIDAD DE BOLSAS': finalBags,
+            'cantidad de bolsas': finalBags,
+            'cantidadBolsas': finalBags,
+            'cantidad_de_bolsas': finalBags,
 
             // Tiempos / Viandas variations
-            'TIEMPOS': data.tiempos,
-            'tiempos': data.tiempos,
-            'VIANDAS': data.tiempos,
-            'viandas': data.tiempos,
-            'CANTIDAD DE VIANDAS': data.tiempos,
+            'TIEMPOS': finalTiempos,
+            'tiempos': finalTiempos,
+            'VIANDAS': finalTiempos,
+            'viandas': finalTiempos,
+            'CANTIDAD DE VIANDAS': finalTiempos,
 
             // Active / Status variations
             'ESTADO': data.isActive ? '1' : '0',
@@ -148,12 +154,12 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
             'ACTIVO': data.isActive ? '1' : '0',
 
             // Other fields variations
-            'exclusiones': data.exclusions,
-            'EXCLUSIONES': data.exclusions,
-            'repartidor': data.driver,
-            'REPARTIDOR': data.driver,
-            'siglas': data.siglas,
-            'SIGLAS': data.siglas
+            'exclusiones': finalExclusions,
+            'EXCLUSIONES': finalExclusions,
+            'repartidor': finalDriver,
+            'REPARTIDOR': finalDriver,
+            'siglas': data.siglas || 'C',
+            'SIGLAS': data.siglas || 'C'
         };
 
         // We use a simple POST with text/plain to avoid CORS preflight (OPTIONS) requests

@@ -993,7 +993,6 @@ const ClientManager: React.FC = () => {
     if (!confirmed) return;
 
     setSavingClientId(biz.id);
-    showFeedbackToast(`🔄 Moviendo a ${biz.name} a Ruta ${targetRoute}...`);
 
     try {
       const currentConfig = parseClientProfile(biz.email);
@@ -1009,42 +1008,45 @@ const ClientManager: React.FC = () => {
         email: JSON.stringify(updatedConfig)
       };
 
-      // 1. Update in Supabase & Zustand store
-      const success = await updateClientInStore(updatedClientObject);
-      if (!success) {
-        showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
-        return;
-      }
-
-      // 2. Prepare payload for Google Sheets
+      // 1. Prepare payload for Google Sheets with full fallbacks
       const clientPayload = {
         name: biz.name,
         phone: biz.phone || '',
         address: biz.location || '',
         locationLink: biz.locationLink || '',
         coords: biz.lat && biz.lng && (biz.lat !== 0 || biz.lng !== 0) ? `${biz.lat}, ${biz.lng}` : '',
-        planType: biz.planType,
-        plansCount: biz.plansCount,
-        exclusions: biz.exclusions,
-        siglas: biz.siglas,
-        driver: biz.driver === 'SIN ASIGNAR' ? undefined : biz.driver,
-        bags: calculateBagsForClient(biz.email),
-        tiempos: getClientTiempos(biz.email)
+        planType: biz.planType || currentConfig.planType || 'HEALTHY',
+        plansCount: biz.plansCount || currentConfig.plansCount || 1,
+        exclusions: biz.exclusions || currentConfig.exclusions || 'Ninguna',
+        siglas: biz.siglas || currentConfig.siglas || 'C',
+        driver: (biz.driver && biz.driver !== 'SIN ASIGNAR') ? biz.driver : (currentConfig.driver && currentConfig.driver !== 'SIN ASIGNAR' ? currentConfig.driver : undefined),
+        bags: biz.bags || calculateBagsForClient(biz.email) || 1,
+        tiempos: biz.tiempos || getClientTiempos(biz.email) || 1
       };
 
-      // 3. Current Route -> move to "inactivos"
-      pushToGoogleSheets(currentRoute, {
+      // 2. Step 1: Move to "inactivos" in current route sheet
+      showFeedbackToast(`📤 Moviendo a inactivos en hoja ${currentRoute}...`);
+      await pushToGoogleSheets(currentRoute, {
         ...clientPayload,
         isActive: false
       });
 
-      // 4. Target Route -> copy & activate in "rutas"
-      pushToGoogleSheets(targetRoute, {
+      // 3. Step 2: Copy and activate in target route sheet
+      showFeedbackToast(`📥 Registrando como activo en hoja ${targetRoute}...`);
+      await pushToGoogleSheets(targetRoute, {
         ...clientPayload,
         isActive: true
       });
 
-      showFeedbackToast(`✅ ${biz.name} cambiado a Ruta ${targetRoute} con éxito.`);
+      // 4. Step 3: Update local store and Supabase database
+      showFeedbackToast(`💾 Guardando cambios en base de datos...`);
+      const success = await updateClientInStore(updatedClientObject);
+      if (!success) {
+        showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
+        return;
+      }
+
+      showFeedbackToast(`✅ ¡${biz.name} transferido a Ruta ${targetRoute} con éxito!`);
     } catch (err) {
       console.error('Error switching client route:', err);
       showFeedbackToast('❌ Error al cambiar de ruta.');
