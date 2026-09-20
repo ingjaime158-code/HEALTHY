@@ -983,6 +983,76 @@ const ClientManager: React.FC = () => {
     setTimeout(() => alertDiv.remove(), 3000);
   };
 
+  const handleSwitchClientRoute = async (biz: any) => {
+    const currentRoute: 'Matutina' | 'Vespertina' = (biz.routeType as 'Matutina' | 'Vespertina') || 'Vespertina';
+    const targetRoute: 'Matutina' | 'Vespertina' = currentRoute === 'Vespertina' ? 'Matutina' : 'Vespertina';
+
+    const confirmed = window.confirm(
+      `¿Deseas cambiar a "${biz.name}" a la Ruta ${targetRoute}?\n\n• Se moverá a Inactivos en la hoja de ${currentRoute}.\n• Se copiará y activará en la hoja de ${targetRoute}.`
+    );
+    if (!confirmed) return;
+
+    setSavingClientId(biz.id);
+    showFeedbackToast(`🔄 Moviendo a ${biz.name} a Ruta ${targetRoute}...`);
+
+    try {
+      const currentConfig = parseClientProfile(biz.email);
+      const updatedConfig = {
+        ...currentConfig,
+        isActive: true,
+        routeOrder: 9999
+      };
+
+      const updatedClientObject: Business = {
+        ...biz,
+        routeType: targetRoute,
+        email: JSON.stringify(updatedConfig)
+      };
+
+      // 1. Update in Supabase & Zustand store
+      const success = await updateClientInStore(updatedClientObject);
+      if (!success) {
+        showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
+        return;
+      }
+
+      // 2. Prepare payload for Google Sheets
+      const clientPayload = {
+        name: biz.name,
+        phone: biz.phone || '',
+        address: biz.location || '',
+        locationLink: biz.locationLink || '',
+        coords: biz.lat && biz.lng && (biz.lat !== 0 || biz.lng !== 0) ? `${biz.lat}, ${biz.lng}` : '',
+        planType: biz.planType,
+        plansCount: biz.plansCount,
+        exclusions: biz.exclusions,
+        siglas: biz.siglas,
+        driver: biz.driver === 'SIN ASIGNAR' ? undefined : biz.driver,
+        bags: calculateBagsForClient(biz.email),
+        tiempos: getClientTiempos(biz.email)
+      };
+
+      // 3. Current Route -> move to "inactivos"
+      pushToGoogleSheets(currentRoute, {
+        ...clientPayload,
+        isActive: false
+      });
+
+      // 4. Target Route -> copy & activate in "rutas"
+      pushToGoogleSheets(targetRoute, {
+        ...clientPayload,
+        isActive: true
+      });
+
+      showFeedbackToast(`✅ ${biz.name} cambiado a Ruta ${targetRoute} con éxito.`);
+    } catch (err) {
+      console.error('Error switching client route:', err);
+      showFeedbackToast('❌ Error al cambiar de ruta.');
+    } finally {
+      setSavingClientId(null);
+    }
+  };
+
   const handleDownloadCSV = (routeType: 'Matutina' | 'Vespertina') => {
     // 1. Get all active clients from the specified route
     const activeClients = parsedClients.filter(c => c.isActive && c.routeType === routeType);
@@ -1666,6 +1736,27 @@ const ClientManager: React.FC = () => {
     }
 
     // Notify GAS Webhook to sync Google Sheets
+    const oldRoute = (editingClient.routeType as 'Matutina' | 'Vespertina') || 'Matutina';
+    if (oldRoute !== finalRouteType) {
+      // Inactive in old route sheet
+      pushToGoogleSheets(oldRoute, {
+        name: finalName,
+        phone: finalPhone,
+        address: finalLocation,
+        locationLink: finalLocationLink,
+        coords: modalLat && modalLng ? `${modalLat}, ${modalLng}` : '',
+        planType: finalPlanType.toUpperCase(),
+        plansCount: totalPlansCount,
+        exclusions: modalExclusions,
+        siglas: finalSiglas.toUpperCase(),
+        driver: modalDriver.toUpperCase(),
+        isActive: false,
+        bags: activeBags,
+        tiempos: sumTiempos
+      });
+    }
+
+    // Sync to target Google Sheets
     pushToGoogleSheets(finalRouteType as 'Matutina' | 'Vespertina', {
       name: finalName,
       phone: finalPhone,
@@ -2148,11 +2239,11 @@ const ClientManager: React.FC = () => {
                         </div>
 
                         {/* A. Name & Route Type Column */}
-                        <div className="w-full lg:w-[16%] lg:min-w-[150px] shrink-0 flex flex-col gap-0.5 min-w-0">
+                        <div className="w-full lg:w-[18%] lg:min-w-[180px] shrink-0 flex flex-col gap-1 min-w-0">
                           <h4 className="text-xs md:text-sm font-black text-slate-900 uppercase tracking-tight truncate" title={biz.name || ''}>
                             {(biz.name || '').toUpperCase()}
                           </h4>
-                          <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`text-[8px] md:text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shrink-0 ${
                               isMorning 
                                 ? 'bg-blue-50 text-blue-750 border border-blue-200' 
@@ -2160,6 +2251,20 @@ const ClientManager: React.FC = () => {
                             }`}>
                               {isMorning ? '🌅 Matutina' : '🌇 Vespertina'}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchClientRoute(biz)}
+                              disabled={savingClientId === biz.id}
+                              title={`Cambiar a Ruta ${isMorning ? 'Vespertina 🌇' : 'Matutina 🌅'}`}
+                              className={`inline-flex items-center gap-1 text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border transition-all cursor-pointer shadow-2xs hover:shadow-xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isMorning
+                                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-250 hover:border-amber-400'
+                                  : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-250 hover:border-blue-400'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[12px] text-purple-600">swap_horiz</span>
+                              <span>Pasar a {isMorning ? 'Vespertina' : 'Matutina'}</span>
+                            </button>
                           </div>
                         </div>
 
