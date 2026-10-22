@@ -3,16 +3,11 @@ import { useMap } from '@vis.gl/react-google-maps';
 import { useAppStore } from '../store/useStore';
 import { addBusiness, getBusinesses, getDrivers, Driver, Business } from '../services/dataService';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
-import { parseClientProfile, serializeClientProfile } from '../utils/clientProfile';
+import { parseClientProfile, serializeClientProfile, ClientPlanItem } from '../utils/clientProfile';
+import { calculateBagsFromPlans } from '../utils/bagCalculator';
 import { useHealthyDreamsStore } from '../store/useHealthyDreamsStore';
 
-interface PlanItem {
-    id: string;
-    planType: string;
-    package: string;
-    siglas: string;
-    tiempos: number;
-}
+type PlanItem = ClientPlanItem;
 
 interface Props {
     showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -72,7 +67,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
 
     const packageSiglas: Record<string, string> = {
         'Comida': 'C',
-        'Comida + Cena': 'C+Ce',
+        'Comida + Cena': 'C+C',
         'Desayuno + Comida': 'D+C',
         'Desayuno + Comida + Cena': 'D+C+C',
         'Desayuno + Cena': 'D+Ce',
@@ -110,20 +105,30 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
         }
     }, [newClient.coords, newClient.locationLink, setNewClient]);
 
-    const sumTiempos = plansList.reduce((acc, plan) => acc + plan.tiempos, 0);
-    const totalPlansCount = plansList.length;
-
-    const dishesSunMon = (sumTiempos * 3) + extraDishes;
-    const bagsSunMon = Math.ceil(dishesSunMon / 6);
-
-    const dishesWedThu = (sumTiempos * 2) + extraDishes;
-    const bagsWedThu = Math.ceil(dishesWedThu / 6);
-
     const today = new Date();
     const dayOfWeek = today.getDay();
-    // Sunday (0), Monday (1), Tuesday (2) represent Delivery 1 (3 days covered)
-    const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2;
-    const activeBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
+    const previewPlans = firstCustomerDraft
+        ? [...firstCustomerDraft.plans, ...plansList]
+        : plansList;
+    const previewName = firstCustomerDraft
+        ? `${firstCustomerDraft.name} & ${newClient.name || 'CLIENTE 2'}`
+        : (newClient.name || 'CLIENTE');
+    const previewExtra = firstCustomerDraft
+        ? firstCustomerDraft.extraDishes + extraDishes
+        : extraDishes;
+
+    const bagsCalc = calculateBagsFromPlans(previewPlans, previewName, previewExtra, dayOfWeek);
+    const sumTiempos = bagsCalc.totalTiempos;
+    const totalPlansCount = previewPlans.length;
+
+    const dishesSunMon = (sumTiempos * 3) + previewExtra;
+    const bagsSunMon = bagsCalc.bagsSunMon;
+
+    const dishesWedThu = (sumTiempos * 4) + previewExtra;
+    const bagsWedThu = bagsCalc.bagsWedSun;
+
+    const isSundayOrMonday = bagsCalc.activeCycle === 'DOM_LUN_3D';
+    const activeBags = bagsCalc.activeBags;
 
     // Zustand system clients for duplicate detection
     const systemClients = useHealthyDreamsStore(state => state.clients);
@@ -503,6 +508,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                         <option value="HEALTHY">HEALTHY</option>
                                         <option value="SLIM">SLIM</option>
                                         <option value="STRONG">STRONG</option>
+                                        <option value="SLIM/HEALTHY">SLIM/HEALTHY</option>
                                         <option value="PERSONALIZADO">OTRO PLAN...</option>
                                     </select>
                                 </div>
@@ -516,17 +522,17 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                             const pkg = e.target.value;
                                             setNewPackage(pkg);
                                             if (pkg !== 'Personalizado...') {
-                                                setNewSiglas(packageSiglas[pkg] || '');
+                                                setNewSiglas(packageSiglas[pkg] || 'C');
                                             }
                                         }}
                                     >
-                                        <option value="Comida">Comida (1 tiempo)</option>
-                                        <option value="Comida + Cena">Comida + Cena (2 tiempos)</option>
-                                        <option value="Desayuno + Comida">Desayuno + Comida (2 tiempos)</option>
-                                        <option value="Desayuno + Comida + Cena">Desayuno + Comida + Cena (3 tiempos)</option>
-                                        <option value="Desayuno + Cena">Desayuno + Cena (2 tiempos)</option>
-                                        <option value="Desayuno">Desayuno (1 tiempo)</option>
-                                        <option value="Cena">Cena (1 tiempo)</option>
+                                        <option value="Comida">C — Comida (1 tiempo)</option>
+                                        <option value="Comida + Cena">C+C — Comida + Cena (2 tiempos)</option>
+                                        <option value="Desayuno + Comida">D+C — Desayuno + Comida (2 tiempos)</option>
+                                        <option value="Desayuno + Comida + Cena">D+C+C — Desayuno + Comida + Cena (3 tiempos)</option>
+                                        <option value="Desayuno">De — Desayuno (1 tiempo)</option>
+                                        <option value="Cena">Ce — Cena (1 tiempo)</option>
+                                        <option value="Desayuno + Cena">D+Ce — Desayuno + Cena (2 tiempos)</option>
                                         <option value="Personalizado...">Personalizado / Otro...</option>
                                     </select>
                                 </div>
@@ -584,6 +590,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
 
                                             const newPlanItem: PlanItem = {
                                                 id: Date.now().toString(),
+                                                clientName: (newClient.name || '').trim().toUpperCase() || undefined,
                                                 planType: finalPlanType,
                                                 package: newPackage,
                                                 siglas: newSiglas || 'C',
@@ -654,17 +661,17 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                             </div>
                         </div>
 
-                        {/* Wednesday/Thursday Delivery (2 days) */}
+                        {/* Wednesday/Thursday Delivery + Weekend (4 days) */}
                         <div className={`flex items-center justify-between p-3 rounded-lg border transition-all ${!isSundayOrMonday ? 'bg-pink-500/10 border-pink-500/30' : 'bg-black/20 border-white/5 opacity-70'}`}>
                             <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold text-white">Entrega Miércoles / Jueves</span>
+                                    <span className="text-xs font-bold text-white">Entrega Mié / Jue + Sábado y Domingo</span>
                                     {!isSundayOrMonday && (
                                         <span className="bg-pink-500 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">ACTIVA</span>
                                     )}
                                 </div>
                                 <span className="text-[10px] text-gray-400 font-mono">
-                                    2 días × ({sumTiempos} platillos/día) + {extraDishes} extras = {dishesWedThu} platillos
+                                    4 días (Jue, Vie, Sáb, Dom) × ({sumTiempos} platillos/día) + {previewExtra} extras = {dishesWedThu} platillos
                                 </span>
                             </div>
                             <div className="text-right">
@@ -684,11 +691,12 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 if (!newClient.name) return showToast('El nombre es requerido para el primer cliente', 'error');
                                 if (plansList.length === 0) return showToast('Debes agregar al menos un plan para el primer cliente', 'error');
                                 
+                                const firstClientUpper = newClient.name.trim().toUpperCase();
                                 setFirstCustomerDraft({
-                                    name: newClient.name,
+                                    name: firstClientUpper,
                                     phone: newClient.phone || '',
                                     exclusions: newClient.exclusions || 'Ninguna',
-                                    plans: plansList,
+                                    plans: plansList.map(p => ({ ...p, clientName: firstClientUpper })),
                                     extraDishes: extraDishes
                                 });
 
@@ -707,7 +715,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                             className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:from-purple-800 disabled:to-indigo-800 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-purple-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed border border-purple-500/20 mb-2"
                         >
                             <span className="material-symbols-outlined font-bold">house</span>
-                            Agregar cliente en misma dirección
+                            Agregar cliente en misma dirección (&amp;)
                         </button>
                     )}
 
@@ -723,10 +731,11 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 const lng = coordsParts.length === 2 ? parseFloat(coordsParts[1]) : 0;
 
                                 const isCombined = firstCustomerDraft !== null;
+                                const currentClientUpper = newClient.name.trim().toUpperCase();
                                 
                                 const finalName = isCombined 
-                                    ? `${firstCustomerDraft.name} Y ${newClient.name}`.toUpperCase()
-                                    : newClient.name.toUpperCase();
+                                    ? `${firstCustomerDraft.name.trim()} & ${currentClientUpper}`.toUpperCase()
+                                    : currentClientUpper;
                                 
                                 const finalPhone = isCombined
                                     ? [firstCustomerDraft.phone, newClient.phone].filter(Boolean).join(' / ')
@@ -738,9 +747,10 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                         .join(' / ') || 'Ninguna'
                                     : newClient.exclusions || 'Ninguna';
 
+                                const taggedCurrentPlans = plansList.map(p => ({ ...p, clientName: currentClientUpper }));
                                 const combinedPlans = isCombined
-                                    ? [...firstCustomerDraft.plans, ...plansList]
-                                    : plansList;
+                                    ? [...firstCustomerDraft.plans, ...taggedCurrentPlans]
+                                    : taggedCurrentPlans;
 
                                 const combinedExtraDishes = isCombined
                                     ? firstCustomerDraft.extraDishes + extraDishes
@@ -749,20 +759,10 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 const finalPlanType = combinedPlans.map(p => p.planType).join(' + ') || 'NINGUNO';
                                 const finalSiglas = combinedPlans.map(p => p.siglas).join(' + ') || 'C';
                                 const finalPackage = combinedPlans.map(p => p.package).join(' + ') || 'Comida';
-                                const combinedTiempos = combinedPlans.reduce((acc, plan) => acc + plan.tiempos, 0);
+                                const combinedBagsCalc = calculateBagsFromPlans(combinedPlans, finalName, combinedExtraDishes, dayOfWeek);
+                                const combinedTiempos = combinedBagsCalc.totalTiempos;
                                 const combinedPlansCount = combinedPlans.length;
-
-                                // Recalculate bags for combined client
-                                let finalBags = activeBags;
-                                if (isCombined) {
-                                    const dishesSunMon = (combinedTiempos * 3) + combinedExtraDishes;
-                                    const bagsSunMon = Math.ceil(dishesSunMon / 6);
-
-                                    const dishesWedThu = (combinedTiempos * 2) + combinedExtraDishes;
-                                    const bagsWedThu = Math.ceil(dishesWedThu / 6);
-
-                                    finalBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
-                                }
+                                const finalBags = combinedBagsCalc.activeBags;
 
                                 // Serialize label config to the email field
                                 const labelConfig = {
@@ -837,10 +837,11 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 const lng = coordsParts.length === 2 ? parseFloat(coordsParts[1]) : 0;
 
                                 const isCombined = firstCustomerDraft !== null;
+                                const currentClientUpper = newClient.name.trim().toUpperCase();
                                 
                                 const finalName = isCombined 
-                                    ? `${firstCustomerDraft.name} Y ${newClient.name}`.toUpperCase()
-                                    : newClient.name.toUpperCase();
+                                    ? `${firstCustomerDraft.name.trim()} & ${currentClientUpper}`.toUpperCase()
+                                    : currentClientUpper;
                                 
                                 const finalPhone = isCombined
                                     ? [firstCustomerDraft.phone, newClient.phone].filter(Boolean).join(' / ')
@@ -852,9 +853,10 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                         .join(' / ') || 'Ninguna'
                                     : newClient.exclusions || 'Ninguna';
 
+                                const taggedCurrentPlans = plansList.map(p => ({ ...p, clientName: currentClientUpper }));
                                 const combinedPlans = isCombined
-                                    ? [...firstCustomerDraft.plans, ...plansList]
-                                    : plansList;
+                                    ? [...firstCustomerDraft.plans, ...taggedCurrentPlans]
+                                    : taggedCurrentPlans;
 
                                 const combinedExtraDishes = isCombined
                                     ? firstCustomerDraft.extraDishes + extraDishes
@@ -863,20 +865,10 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 const finalPlanType = combinedPlans.map(p => p.planType).join(' + ') || 'NINGUNO';
                                 const finalSiglas = combinedPlans.map(p => p.siglas).join(' + ') || 'C';
                                 const finalPackage = combinedPlans.map(p => p.package).join(' + ') || 'Comida';
-                                const combinedTiempos = combinedPlans.reduce((acc, plan) => acc + plan.tiempos, 0);
+                                const combinedBagsCalc = calculateBagsFromPlans(combinedPlans, finalName, combinedExtraDishes, dayOfWeek);
+                                const combinedTiempos = combinedBagsCalc.totalTiempos;
                                 const combinedPlansCount = combinedPlans.length;
-
-                                // Recalculate bags for combined client
-                                let finalBags = activeBags;
-                                if (isCombined) {
-                                    const dishesSunMon = (combinedTiempos * 3) + combinedExtraDishes;
-                                    const bagsSunMon = Math.ceil(dishesSunMon / 6);
-
-                                    const dishesWedThu = (combinedTiempos * 2) + combinedExtraDishes;
-                                    const bagsWedThu = Math.ceil(dishesWedThu / 6);
-
-                                    finalBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
-                                }
+                                const finalBags = combinedBagsCalc.activeBags;
 
                                 // Serialize label config to the email field
                                 const labelConfig = {

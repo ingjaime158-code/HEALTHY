@@ -4,7 +4,12 @@ import { jsPDF } from 'jspdf';
 import { getBusinesses, updateBusiness, getDrivers, Driver } from '../services/dataService';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
 import { parseCsv } from '../utils/csvParser';
-import { parseClientProfile } from '../utils/clientProfile';
+import {
+  parseClientProfile,
+  getNormalizedClientPlans,
+  splitClientNames,
+  normalizeSiglas
+} from '../utils/clientProfile';
 import { useHealthyDreamsStore } from '../store/useHealthyDreamsStore';
 
 interface MealLabel {
@@ -135,44 +140,28 @@ const LabelsDashboard: React.FC = () => {
     const list: MealLabel[] = [];
     clients.forEach((biz) => {
       const parsed = parseClientProfile(biz.email);
-      const planType = parsed.planType || 'HEALTHY';
-      const plansCount = parsed.plansCount || 1;
       const exclusions = parsed.exclusions || 'Ninguna';
-      const siglas = parsed.siglas || 'C';
       const driver = parsed.driver || 'SIN ASIGNAR';
       const isActive = parsed.isActive !== false;
-      const plans = parsed.plans || [];
 
       if (!isActive) return;
 
       const routeCode = biz.routeType === 'Matutina' ? 'M' : 'V';
+      const subNames = splitClientNames(biz.name);
+      const normalizedPlans = getNormalizedClientPlans(biz.email, biz.name);
 
-      if (plans.length > 0) {
-        plans.forEach((p: any, idx: number) => {
-          list.push({
-            id: `db-${biz.id}-${idx}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            name: biz.name,
-            plan: p.planType.toUpperCase(),
-            route: routeCode,
-            exclusions: exclusions,
-            siglas: p.siglas.toUpperCase(),
-            driver: driver.toUpperCase()
-          });
+      normalizedPlans.forEach((p, idx) => {
+        const personName = p.clientName || subNames[idx] || biz.name;
+        list.push({
+          id: `db-${biz.id}-${idx}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          name: personName,
+          plan: (p.planType || 'HEALTHY').toUpperCase(),
+          route: routeCode,
+          exclusions: exclusions,
+          siglas: normalizeSiglas(p.siglas),
+          driver: driver.toUpperCase()
         });
-      } else {
-        // Fallback for legacy database entries
-        for (let k = 0; k < plansCount; k++) {
-          list.push({
-            id: `db-${biz.id}-${k}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            name: biz.name,
-            plan: planType.toUpperCase(),
-            route: routeCode,
-            exclusions: exclusions,
-            siglas: siglas.toUpperCase(),
-            driver: driver.toUpperCase()
-          });
-        }
-      }
+      });
     });
 
     setParsedLabels(list);
@@ -184,44 +173,28 @@ const LabelsDashboard: React.FC = () => {
       const list: MealLabel[] = [];
       bizList.forEach((biz) => {
         const parsed = parseClientProfile(biz.email);
-        const planType = parsed.planType || 'HEALTHY';
-        const plansCount = parsed.plansCount || 1;
         const exclusions = parsed.exclusions || 'Ninguna';
-        const siglas = parsed.siglas || 'C';
         const driver = parsed.driver || 'SIN ASIGNAR';
         const isActive = parsed.isActive !== false;
-        const plans = parsed.plans || [];
         
         if (!isActive) return;
         
         const routeCode = biz.routeType === 'Matutina' ? 'M' : 'V';
+        const subNames = splitClientNames(biz.name);
+        const normalizedPlans = getNormalizedClientPlans(biz.email, biz.name);
 
-        if (plans.length > 0) {
-          plans.forEach((p: any, idx: number) => {
-            list.push({
-              id: `db-${biz.id}-${idx}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-              name: biz.name,
-              plan: p.planType.toUpperCase(),
-              route: routeCode,
-              exclusions: exclusions,
-              siglas: p.siglas.toUpperCase(),
-              driver: driver.toUpperCase()
-            });
+        normalizedPlans.forEach((p, idx) => {
+          const personName = p.clientName || subNames[idx] || biz.name;
+          list.push({
+            id: `db-${biz.id}-${idx}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            name: personName,
+            plan: (p.planType || 'HEALTHY').toUpperCase(),
+            route: routeCode,
+            exclusions: exclusions,
+            siglas: normalizeSiglas(p.siglas),
+            driver: driver.toUpperCase()
           });
-        } else {
-          // Fallback for legacy database entries
-          for (let k = 0; k < plansCount; k++) {
-            list.push({
-              id: `db-${biz.id}-${k}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-              name: biz.name,
-              plan: planType.toUpperCase(),
-              route: routeCode,
-              exclusions: exclusions,
-              siglas: siglas.toUpperCase(),
-              driver: driver.toUpperCase()
-            });
-          }
-        }
+        });
       });
       return list;
     } catch (e) {
@@ -282,15 +255,33 @@ const LabelsDashboard: React.FC = () => {
         const fields = parsedRows[i];
         if (fields.length === 0 || !fields[nameIdx]) continue;
 
-        labels.push({
-          id: `label-${i}-${Date.now()}`,
-          name: fields[nameIdx] || '',
-          plan: planIdx >= 0 ? fields[planIdx] || 'PERSONALIZADO' : 'PLAN',
-          route: routeIdx >= 0 ? fields[routeIdx] || 'V' : 'V',
-          exclusions: exclIdx >= 0 ? fields[exclIdx] || '' : '',
-          siglas: siglasIdx >= 0 ? fields[siglasIdx] || 'C' : 'C',
-          driver: driverIdx >= 0 ? fields[driverIdx].toUpperCase() || 'SIN ASIGNAR' : 'SIN ASIGNAR'
-        });
+        const rawName = fields[nameIdx] || '';
+        const rawPlan = planIdx >= 0 ? fields[planIdx] || 'PERSONALIZADO' : 'PLAN';
+        const rawRoute = routeIdx >= 0 ? fields[routeIdx] || 'V' : 'V';
+        const rawExcl = exclIdx >= 0 ? fields[exclIdx] || '' : '';
+        const rawSiglas = siglasIdx >= 0 ? fields[siglasIdx] || 'C' : 'C';
+        const rawDriver = driverIdx >= 0 ? (fields[driverIdx] || '').toUpperCase() || 'SIN ASIGNAR' : 'SIN ASIGNAR';
+
+        const subNames = splitClientNames(rawName);
+        const splitPlans = rawPlan.includes(' + ')
+          ? rawPlan.split(/\s*\+\s*/).map(s => s.trim()).filter(Boolean)
+          : [rawPlan.trim()];
+        const splitSiglas = rawSiglas.includes(' + ')
+          ? rawSiglas.split(/\s*\+\s*/).map(s => s.trim()).filter(Boolean)
+          : [rawSiglas.trim()];
+
+        const count = Math.max(1, subNames.length);
+        for (let k = 0; k < count; k++) {
+          labels.push({
+            id: `label-${i}-${k}-${Date.now()}`,
+            name: subNames[k] || rawName,
+            plan: (splitPlans[k] || splitPlans[0] || 'HEALTHY').toUpperCase(),
+            route: rawRoute,
+            exclusions: rawExcl,
+            siglas: normalizeSiglas(splitSiglas[k] || splitSiglas[0] || 'C'),
+            driver: rawDriver
+          });
+        }
       }
 
       setParsedLabels(labels);

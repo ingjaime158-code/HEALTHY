@@ -7,17 +7,23 @@ import { AIRouteSuggestionModal } from '../components/AIRouteSuggestionModal';
 import { AISuggestionResult } from '../services/api/aiRouteService';
 declare const google: any;
 import { parseCsv } from '../utils/csvParser';
-import { calculateBagsForClient, getClientTiempos } from '../utils/bagCalculator';
-import { parseClientProfile, serializeClientProfile, parseCoordinates } from '../utils/clientProfile';
+import { calculateBagsForClient, calculateBagsBreakdown, calculateBagsFromPlans, getClientTiempos } from '../utils/bagCalculator';
+import {
+  parseClientProfile,
+  serializeClientProfile,
+  serializeClientPlansProfile,
+  parseCoordinates,
+  PLAN_OPTIONS,
+  SIGLAS_OPTIONS,
+  getSiglasConfig,
+  normalizeSiglas,
+  getNormalizedClientPlans,
+  splitClientNames,
+  ClientPlanItem
+} from '../utils/clientProfile';
 import { useHealthyDreamsStore } from '../store/useHealthyDreamsStore';
 
-interface PlanItem {
-    id: string;
-    planType: string;
-    package: string;
-    siglas: string;
-    tiempos: number;
-}
+type PlanItem = ClientPlanItem;
 
 
 // Fetch IDs from environment or fallback
@@ -28,13 +34,13 @@ const MORNING_SHEET_URL = `https://docs.google.com/spreadsheets/d/${MORNING_SHEE
 const EVENING_SHEET_URL = `https://docs.google.com/spreadsheets/d/${EVENING_SHEET_ID}/edit?gid=2039339913#gid=2039339913`;
 
 const DAYS_OF_WEEK = [
-  { name: 'Domingo', route: 'Vespertina', desc: 'Reparto Vespertina 🌇', isDelivery: true, value: 0 },
-  { name: 'Lunes', route: 'Matutina', desc: 'Reparto Matutina 🌅', isDelivery: true, value: 1 },
+  { name: 'Domingo', route: 'Vespertina', desc: 'Reparto Vespertina 🌇 (3 días)', isDelivery: true, value: 0 },
+  { name: 'Lunes', route: 'Matutina', desc: 'Reparto Matutina 🌅 (3 días)', isDelivery: true, value: 1 },
   { name: 'Martes', route: null, desc: 'Sin reparto ordinario 💤', isDelivery: false, value: 2 },
-  { name: 'Miércoles', route: 'Vespertina', desc: 'Reparto Vespertina 🌇', isDelivery: true, value: 3 },
-  { name: 'Jueves', route: 'Matutina', desc: 'Reparto Matutina 🌅', isDelivery: true, value: 4 },
-  { name: 'Viernes', route: null, desc: 'Sin reparto ordinario 💤', isDelivery: false, value: 5 },
-  { name: 'Sábado', route: null, desc: 'Sin reparto ordinario 💤', isDelivery: false, value: 6 },
+  { name: 'Miércoles', route: 'Vespertina', desc: 'Reparto Vespertina + Fin de Semana 🌇 (4 días)', isDelivery: true, value: 3 },
+  { name: 'Jueves', route: 'Matutina', desc: 'Reparto Matutina + Fin de Semana 🌅 (4 días)', isDelivery: true, value: 4 },
+  { name: 'Viernes', route: null, desc: 'Ciclo Fin de Semana activo 📦', isDelivery: false, value: 5 },
+  { name: 'Sábado', route: 'Vespertina', desc: 'Cobertura Fin de Semana (Sáb/Dom) 📦', isDelivery: true, value: 6 },
 ];
 
 const PACKAGE_TIEMPOS: Record<string, number> = {
@@ -56,13 +62,18 @@ const PACKAGE_TIEMPOS: Record<string, number> = {
 
 const PACKAGE_SIGLAS: { [key: string]: string } = {
   'Comida': 'C',
-  'Cena': 'CE',
-  'Comida y Cena': 'C-CE',
-  'Desayuno y Comida': 'D-C',
-  'Desayuno y Cena': 'D-CE',
-  'Desayuno, Comida y Cena': '3T',
-  'Paquete Completo': 'PC',
-  'Snack': 'S',
+  'Comida + Cena': 'C+C',
+  'Desayuno + Comida': 'D+C',
+  'Desayuno + Comida + Cena': 'D+C+C',
+  'Desayuno + Cena': 'D+Ce',
+  'Desayuno': 'De',
+  'Cena': 'Ce',
+  'Comida y Cena': 'C+C',
+  'Desayuno y Comida': 'D+C',
+  'Desayuno y Cena': 'D+Ce',
+  'Desayuno, Comida y Cena': 'D+C+C',
+  'Paquete Completo': 'D+C+C',
+  'Snack': 'C',
   'Ninguno': 'C' // Fallback
 };
 
@@ -84,36 +95,38 @@ const ClientManager: React.FC = () => {
     setClients: setDbClients
   } = useHealthyDreamsStore();
 
+  // Dynamic Day Detection
+  const [currentDayIndex, setCurrentDayIndex] = useState<number>(new Date().getDay());
+
   // Processed list of clients to avoid duplicate JSON parsing
   const parsedClients = useMemo(() => {
     return dbClients.map(biz => {
-      let planType = '';
-      let plansCount = 1;
       let exclusions = 'Ninguna';
-      let siglas = 'C';
       let driver = 'SIN ASIGNAR';
       let isActive = true;
-      let tiempos = 1;
-
       let routeOrder = 9999;
 
       if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
         try {
           const parsed = JSON.parse(biz.email);
-          planType = parsed.planType !== undefined ? parsed.planType : '';
-          plansCount = parseInt(parsed.plansCount) || 1;
           exclusions = parsed.exclusions || 'Ninguna';
-          siglas = parsed.siglas || 'C';
           driver = parsed.driver || 'SIN ASIGNAR';
           isActive = parsed.isActive !== false;
           routeOrder = parsed.routeOrder !== undefined ? Number(parsed.routeOrder) : 9999;
-          tiempos = parsed.tiempos || 0;
-          if (tiempos === 0 && parsed.plans && Array.isArray(parsed.plans)) {
-            tiempos = parsed.plans.reduce((sum: number, p: any) => sum + (p.tiempos || 1), 0);
-          }
-          if (tiempos === 0) tiempos = 1;
         } catch (e) {}
       }
+
+      const plans = getNormalizedClientPlans(biz.email, biz.name);
+      const subNames = splitClientNames(biz.name);
+      const bagsBreakdown = calculateBagsBreakdown(biz.email, biz.name, currentDayIndex);
+
+      const planType = plans.map(p => p.planType).join(' + ') || 'NINGUNO';
+      const siglas = plans.map(p => p.siglas).join(' + ') || 'C';
+      const plansCount = plans.length;
+      const tiempos = bagsBreakdown.totalTiempos;
+      const bags = bagsBreakdown.activeBags;
+      const bagsSunMon = bagsBreakdown.bagsSunMon;
+      const bagsWedSun = bagsBreakdown.bagsWedSun;
 
       return {
         ...biz,
@@ -124,15 +137,21 @@ const ClientManager: React.FC = () => {
         driver,
         isActive,
         tiempos,
-        routeOrder
+        routeOrder,
+        plans,
+        subNames,
+        bags,
+        bagsSunMon,
+        bagsWedSun,
+        bagsBreakdown
       };
     });
-  }, [dbClients]);
+  }, [dbClients, currentDayIndex]);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Sorting and Filtering States
-  const [sortField, setSortField] = useState<'name' | 'plan' | 'tiempos' | 'driver' | 'status' | 'routeOrder' | null>('name');
+  const [sortField, setSortField] = useState<'name' | 'plan' | 'tiempos' | 'bags' | 'driver' | 'status' | 'routeOrder' | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [driverFilter, setDriverFilter] = useState<string>('TODOS');
   const [planFilter, setPlanFilter] = useState<string>('TODOS');
@@ -197,9 +216,6 @@ const ClientManager: React.FC = () => {
   const [modalNewCustomPlanName, setModalNewCustomPlanName] = useState<string>('');
   const [modalNewCustomTiempos, setModalNewCustomTiempos] = useState<number>(1);
   const [modalExtraDishes, setModalExtraDishes] = useState<number>(0);
-
-  // Dynamic Day Detection
-  const [currentDayIndex, setCurrentDayIndex] = useState<number>(new Date().getDay());
 
   useEffect(() => {
     if (modalNewPackage !== 'Personalizado...') {
@@ -667,7 +683,7 @@ const ClientManager: React.FC = () => {
             planType: c.planType || 'HEALTHY',
             tiempos: c.tiempos || 1,
             exclusions: c.exclusions || 'Ninguna',
-            bags: c.plansCount || 1
+            bags: c.bags || calculateBagsForClient(c.email, c.name) || 1
           }));
 
           const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
@@ -800,7 +816,7 @@ const ClientManager: React.FC = () => {
           planType: c.planType || 'HEALTHY',
           tiempos: c.tiempos || 1,
           exclusions: c.exclusions || 'Ninguna',
-          bags: c.plansCount || 1
+          bags: c.bags || calculateBagsForClient(c.email, c.name) || 1
         }));
 
         const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
@@ -903,6 +919,69 @@ const ClientManager: React.FC = () => {
     }
   };
 
+  const handleInlinePlanOrSiglasUpdate = async (
+    biz: any,
+    planIndex: number,
+    changes: { planType?: string; siglas?: string }
+  ) => {
+    setSavingClientId(biz.id);
+    try {
+      const currentPlans = getNormalizedClientPlans(biz.email, biz.name);
+      const updatedPlans = currentPlans.map((item, idx) => {
+        if (idx !== planIndex) return item;
+        const nextPlanType = changes.planType !== undefined ? changes.planType.toUpperCase() : item.planType;
+        const nextSiglas = changes.siglas !== undefined ? normalizeSiglas(changes.siglas) : item.siglas;
+        const sigConfig = getSiglasConfig(nextSiglas);
+        return {
+          ...item,
+          planType: nextPlanType,
+          siglas: sigConfig.siglas,
+          package: sigConfig.package,
+          tiempos: sigConfig.tiempos
+        };
+      });
+
+      const updatedEmail = serializeClientPlansProfile(biz.email, updatedPlans);
+      const updatedBreakdown = calculateBagsBreakdown(updatedEmail, biz.name, currentDayIndex);
+      const parsedUpdated = parseClientProfile(updatedEmail);
+
+      const success = await updateClientInStore({
+        ...biz,
+        email: updatedEmail
+      });
+
+      if (!success) {
+        showFeedbackToast('❌ Error al actualizar el plan del cliente en la base de datos.');
+        return;
+      }
+
+      pushToGoogleSheets((biz.routeType as 'Matutina' | 'Vespertina') || 'Matutina', {
+        name: biz.name,
+        phone: biz.phone || '',
+        address: biz.location || '',
+        locationLink: biz.locationLink || '',
+        coords: biz.lat && biz.lng ? `${biz.lat}, ${biz.lng}` : '',
+        planType: parsedUpdated.planType || 'HEALTHY',
+        plansCount: updatedPlans.length,
+        exclusions: parsedUpdated.exclusions || 'Ninguna',
+        siglas: parsedUpdated.siglas || 'C',
+        driver: parsedUpdated.driver === 'SIN ASIGNAR' ? undefined : parsedUpdated.driver,
+        isActive: parsedUpdated.isActive !== false,
+        bags: updatedBreakdown.activeBags,
+        tiempos: updatedBreakdown.totalTiempos
+      });
+
+      showFeedbackToast(
+        `✅ ${biz.name}: ${parsedUpdated.planType} • ${parsedUpdated.siglas} (${updatedBreakdown.activeBags} ${updatedBreakdown.activeBags === 1 ? 'bolsa' : 'bolsas'})`
+      );
+    } catch (err) {
+      console.error('Error updating inline plan/siglas:', err);
+      showFeedbackToast('❌ Error al actualizar el plan o tiempos.');
+    } finally {
+      setSavingClientId(null);
+    }
+  };
+
   const toggleAllClients = async (active: boolean) => {
     setLoading(true);
     try {
@@ -955,8 +1034,8 @@ const ClientManager: React.FC = () => {
           siglas: config.siglas,
           driver: config.driver === 'SIN ASIGNAR' ? undefined : config.driver,
           isActive: active,
-          bags: calculateBagsForClient(updatedEmail),
-          tiempos: getClientTiempos(updatedEmail)
+          bags: calculateBagsForClient(updatedEmail, biz.name, currentDayIndex),
+          tiempos: getClientTiempos(updatedEmail, biz.name)
         });
       }
 
@@ -1020,8 +1099,8 @@ const ClientManager: React.FC = () => {
         exclusions: biz.exclusions || currentConfig.exclusions || 'Ninguna',
         siglas: biz.siglas || currentConfig.siglas || 'C',
         driver: (biz.driver && biz.driver !== 'SIN ASIGNAR') ? biz.driver : (currentConfig.driver && currentConfig.driver !== 'SIN ASIGNAR' ? currentConfig.driver : undefined),
-        bags: biz.bags || calculateBagsForClient(biz.email) || 1,
-        tiempos: biz.tiempos || getClientTiempos(biz.email) || 1
+        bags: biz.bags || calculateBagsForClient(biz.email, biz.name, currentDayIndex) || 1,
+        tiempos: biz.tiempos || getClientTiempos(biz.email, biz.name) || 1
       };
 
       // 2. Step 1: Move to "inactivos" in current route sheet
@@ -1073,10 +1152,11 @@ const ClientManager: React.FC = () => {
       'Coordenadas',
       'Chofer Asignado',
       'Plan Alimenticio',
+      'Siglas / Tiempos',
       'Platillos al Día (Tiempos)',
       'Exclusiones / Alergias',
       'Bolsas (Ciclo 3 Días - Dom/Lun)',
-      'Bolsas (Ciclo 2 Días - Mié/Jue)'
+      'Bolsas (Ciclo 4 Días - Mié/Jue + Sáb/Dom)'
     ];
 
     // Helper to escape CSV values containing commas or quotes
@@ -1093,22 +1173,7 @@ const ClientManager: React.FC = () => {
     const csvRows = [headers.join(',')];
 
     sortedClients.forEach(biz => {
-      let extraDishes = 0;
-      let sumTiempos = biz.tiempos || 1;
-      let planType = biz.planType || 'NINGUNO';
-      
-      if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
-        try {
-          const parsed = JSON.parse(biz.email);
-          extraDishes = parsed.extraDishes || 0;
-        } catch (e) {}
-      }
-
-      const dishesSunMon = (sumTiempos * 3) + extraDishes;
-      const bagsSunMon = Math.ceil(dishesSunMon / 6);
-
-      const dishesWedThu = (sumTiempos * 2) + extraDishes;
-      const bagsWedThu = Math.ceil(dishesWedThu / 6);
+      const breakdown = biz.bagsBreakdown || calculateBagsBreakdown(biz.email, biz.name, currentDayIndex);
 
       const row = [
         biz.name,
@@ -1117,11 +1182,12 @@ const ClientManager: React.FC = () => {
         biz.locationLink || '',
         biz.lat && biz.lng ? `${biz.lat}, ${biz.lng}` : '',
         biz.driver || 'SIN ASIGNAR',
-        planType,
-        sumTiempos,
+        biz.planType || 'NINGUNO',
+        biz.siglas || 'C',
+        breakdown.totalTiempos,
         biz.exclusions || 'Ninguna',
-        bagsSunMon,
-        bagsWedThu
+        breakdown.bagsSunMon,
+        breakdown.bagsWedSun
       ];
 
       csvRows.push(row.map(escapeCSVValue).join(','));
@@ -1237,16 +1303,22 @@ const ClientManager: React.FC = () => {
             dbConfig.plansCount = sheetClient.bags !== undefined ? sheetClient.bags : dbConfig.plansCount;
             
             if (planChanged || tiemposChanged) {
-              const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || 'C';
-              dbConfig.siglas = defaultSiglas;
-              dbConfig.package = sheetClient.planType;
-              dbConfig.plans = [{
-                id: 'plan-1',
-                planType: sheetClient.planType,
-                package: sheetClient.planType,
-                siglas: defaultSiglas,
-                tiempos: sheetClient.tiempos
-              }];
+              const subNames = splitClientNames(sheetClient.name || matchedDbClient.name);
+              const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || (sheetClient.tiempos === 3 ? 'D+C+C' : sheetClient.tiempos === 2 ? 'C+C' : 'C');
+              const sigConfig = getSiglasConfig(defaultSiglas);
+              const normalizedPlans: PlanItem[] = (subNames.length > 0 ? subNames : [sheetClient.name]).map((subName, idx) => ({
+                id: `plan-${idx + 1}`,
+                clientName: subName,
+                planType: (sheetClient.planType || 'HEALTHY').toUpperCase(),
+                package: sigConfig.package,
+                siglas: sigConfig.siglas,
+                tiempos: sigConfig.tiempos
+              }));
+              dbConfig.siglas = normalizedPlans.map(p => p.siglas).join(' + ');
+              dbConfig.package = normalizedPlans.map(p => p.package).join(' + ');
+              dbConfig.plansCount = normalizedPlans.length;
+              dbConfig.tiempos = normalizedPlans.reduce((sum, p) => sum + p.tiempos, 0);
+              dbConfig.plans = normalizedPlans;
             }
 
             const updatedEmail = JSON.stringify(dbConfig);
@@ -1263,27 +1335,29 @@ const ClientManager: React.FC = () => {
             updatedCount++;
           }
         } else {
-          const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || 'C';
+          const subNames = splitClientNames(sheetClient.name);
+          const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || (sheetClient.tiempos === 3 ? 'D+C+C' : sheetClient.tiempos === 2 ? 'C+C' : 'C');
+          const sigConfig = getSiglasConfig(defaultSiglas);
+          const initialPlans: PlanItem[] = (subNames.length > 0 ? subNames : [sheetClient.name]).map((subName, idx) => ({
+            id: `plan-${idx + 1}`,
+            clientName: subName,
+            planType: (sheetClient.planType || 'HEALTHY').toUpperCase(),
+            package: sigConfig.package,
+            siglas: sigConfig.siglas,
+            tiempos: sigConfig.tiempos
+          }));
           
           const newConfig = {
-            planType: sheetClient.planType,
-            plansCount: sheetClient.bags !== undefined ? sheetClient.bags : 1,
+            planType: initialPlans.map(p => p.planType).join(' + '),
+            plansCount: initialPlans.length,
             exclusions: sheetClient.exclusions || 'Ninguna',
-            siglas: defaultSiglas,
+            siglas: initialPlans.map(p => p.siglas).join(' + '),
             driver: finalDriver,
             isActive: sheetClient.isActive,
             extraDishes: 0,
-            tiempos: sheetClient.tiempos,
-            package: sheetClient.planType,
-            plans: [
-              {
-                id: 'plan-1',
-                planType: sheetClient.planType,
-                package: sheetClient.planType,
-                siglas: defaultSiglas,
-                tiempos: sheetClient.tiempos
-              }
-            ]
+            tiempos: initialPlans.reduce((sum, p) => sum + p.tiempos, 0),
+            package: initialPlans.map(p => p.package).join(' + '),
+            plans: initialPlans
           };
 
           const newEmail = JSON.stringify(newConfig);
@@ -1447,7 +1521,7 @@ const ClientManager: React.FC = () => {
             planType: c.planType || 'HEALTHY',
             tiempos: c.tiempos || 1,
             exclusions: c.exclusions || 'Ninguna',
-            bags: c.plansCount || 1
+            bags: c.bags || calculateBagsForClient(c.email, c.name, currentDayIndex) || 1
           }))
         });
       }
@@ -1476,7 +1550,7 @@ const ClientManager: React.FC = () => {
               driver: c.driver,
               planType: c.planType,
               tiempos: c.tiempos,
-              bags: c.plansCount,
+              bags: c.bags || calculateBagsForClient(c.email, c.name, currentDayIndex) || 1,
               routeOrder: c.routeOrder,
               exclusions: c.exclusions,
               siglas: c.siglas
@@ -1525,7 +1599,7 @@ const ClientManager: React.FC = () => {
     return ['TODOS', ...Array.from(plans).sort()];
   }, [parsedClients]);
 
-  const handleSort = (field: 'name' | 'plan' | 'tiempos' | 'driver' | 'status' | 'routeOrder') => {
+  const handleSort = (field: 'name' | 'plan' | 'tiempos' | 'bags' | 'driver' | 'status' | 'routeOrder') => {
     if (sortField === field) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
@@ -1549,7 +1623,7 @@ const ClientManager: React.FC = () => {
       if (driverFilter !== 'TODOS' && biz.driver.toUpperCase() !== driverFilter.toUpperCase()) return false;
 
       // Plan filter
-      if (planFilter !== 'TODOS' && biz.planType.toUpperCase() !== planFilter.toUpperCase()) return false;
+      if (planFilter !== 'TODOS' && !biz.planType.toUpperCase().includes(planFilter.toUpperCase())) return false;
 
       // Search match
       if (searchQuery) {
@@ -1579,6 +1653,9 @@ const ClientManager: React.FC = () => {
         } else if (sortField === 'tiempos') {
           valA = a.tiempos || 0;
           valB = b.tiempos || 0;
+        } else if (sortField === 'bags') {
+          valA = a.bags || 0;
+          valB = b.bags || 0;
         } else if (sortField === 'driver') {
           valA = a.driver || '';
           valB = b.driver || '';
@@ -1623,40 +1700,20 @@ const ClientManager: React.FC = () => {
     setModalRouteType(client.routeType || selectedRoute || 'Matutina');
     
     // Parse client config from biz.email JSON string
-    let planType = '';
-    let plansCount = 1;
     let exclusions = 'Ninguna';
-    let siglas = 'C';
     let driver = 'SIN ASIGNAR';
     let extraDishes = 0;
-    let plans: PlanItem[] = [];
 
     if (client.email && client.email.startsWith('{') && client.email.endsWith('}')) {
       try {
         const parsed = JSON.parse(client.email);
-        planType = parsed.planType !== undefined ? parsed.planType : '';
-        plansCount = parseInt(parsed.plansCount) || 1;
         exclusions = parsed.exclusions || 'Ninguna';
-        siglas = parsed.siglas || 'C';
         driver = parsed.driver || 'SIN ASIGNAR';
         extraDishes = parseInt(parsed.extraDishes) || 0;
-        
-        if (parsed.plans && Array.isArray(parsed.plans)) {
-          plans = parsed.plans;
-        }
       } catch (e) {}
     }
 
-    // Backwards compatibility for legacy clients that don't have the "plans" array yet
-    if (plans.length === 0) {
-      plans = [{
-        id: 'legacy-1',
-        planType: planType,
-        package: 'Comida', // fallback
-        siglas: siglas,
-        tiempos: 1
-      }];
-    }
+    const plans = getNormalizedClientPlans(client.email, client.name);
 
     setModalDriver(driver);
     setModalExclusions(exclusions);
@@ -1680,24 +1737,30 @@ const ClientManager: React.FC = () => {
       } catch (e) {}
     }
 
-    const finalPlanType = modalPlansList.map(p => p.planType).join(' + ') || 'NINGUNO';
-    const finalSiglas = modalPlansList.map(p => p.siglas).join(' + ') || 'C';
-    const finalPackage = modalPlansList.map(p => p.package).join(' + ') || 'Comida';
-    const totalPlansCount = modalPlansList.length;
-    const sumTiempos = modalPlansList.reduce((acc, plan) => acc + plan.tiempos, 0);
-
-    // Recalculate bags
-    const dishesSunMon = (sumTiempos * 3) + modalExtraDishes;
-    const bagsSunMon = Math.ceil(dishesSunMon / 6);
-    
-    const dishesWedThu = (sumTiempos * 2) + modalExtraDishes;
-    const bagsWedThu = Math.ceil(dishesWedThu / 6);
-    
-    const dayOfWeek = new Date().getDay();
-    const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1 || dayOfWeek === 2;
-    const activeBags = isSundayOrMonday ? bagsSunMon : bagsWedThu;
-
     const finalName = (modalName || editingClient.name).trim().toUpperCase();
+    const subNames = splitClientNames(finalName);
+
+    // Ensure each plan item has its corresponding person name if client is multi-name (&)
+    const normalizedModalPlans: PlanItem[] = modalPlansList.map((p, idx) => {
+      const sigConfig = getSiglasConfig(p.siglas);
+      return {
+        ...p,
+        clientName: subNames[idx] || p.clientName || finalName,
+        planType: (p.planType || 'HEALTHY').toUpperCase(),
+        siglas: sigConfig.siglas,
+        package: sigConfig.package,
+        tiempos: sigConfig.tiempos
+      };
+    });
+
+    const finalPlanType = normalizedModalPlans.map(p => p.planType).join(' + ') || 'NINGUNO';
+    const finalSiglas = normalizedModalPlans.map(p => p.siglas).join(' + ') || 'C';
+    const finalPackage = normalizedModalPlans.map(p => p.package).join(' + ') || 'Comida';
+    const totalPlansCount = normalizedModalPlans.length;
+    const bagsResult = calculateBagsFromPlans(normalizedModalPlans, finalName, modalExtraDishes, currentDayIndex);
+    const sumTiempos = bagsResult.totalTiempos;
+    const activeBags = bagsResult.activeBags;
+
     const finalPhone = modalPhone.trim();
     const finalLocation = modalLocation.trim();
     const finalLocationLink = modalLocationLink.trim();
@@ -1708,14 +1771,14 @@ const ClientManager: React.FC = () => {
       ...baseConfig,
       planType: finalPlanType.toUpperCase(),
       plansCount: totalPlansCount,
-      siglas: finalSiglas.toUpperCase(),
+      siglas: finalSiglas,
       driver: modalDriver.toUpperCase(),
       exclusions: modalExclusions,
       isActive: isActive,
       extraDishes: modalExtraDishes,
       tiempos: sumTiempos,
       package: finalPackage,
-      plans: modalPlansList
+      plans: normalizedModalPlans
     };
 
     const updatedClientObject: Business = {
@@ -2130,7 +2193,7 @@ const ClientManager: React.FC = () => {
                   {/* Plan Column */}
                   <button 
                     onClick={() => handleSort('plan')} 
-                    className="w-[15%] min-w-[130px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
+                    className="w-[14%] min-w-[135px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
                   >
                     <span>Plan</span>
                     <span className="material-symbols-outlined text-[14px]">
@@ -2141,7 +2204,7 @@ const ClientManager: React.FC = () => {
                   {/* Tiempos Column */}
                   <button 
                     onClick={() => handleSort('tiempos')} 
-                    className="w-[18%] min-w-[160px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
+                    className="w-[16%] min-w-[155px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
                   >
                     <span>Tiempos / Siglas</span>
                     <span className="material-symbols-outlined text-[14px]">
@@ -2149,10 +2212,21 @@ const ClientManager: React.FC = () => {
                     </span>
                   </button>
 
+                  {/* Bolsas Column */}
+                  <button 
+                    onClick={() => handleSort('bags')} 
+                    className="w-[11%] min-w-[110px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
+                  >
+                    <span>Bolsas</span>
+                    <span className="material-symbols-outlined text-[14px]">
+                      {sortField === 'bags' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </button>
+
                   {/* Repartidor Column */}
                   <button 
                     onClick={() => handleSort('driver')} 
-                    className="w-[16%] min-w-[140px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
+                    className="w-[14%] min-w-[130px] shrink-0 flex items-center gap-1 hover:text-purple-650 transition-colors text-left font-black"
                   >
                     <span>Repartidor</span>
                     <span className="material-symbols-outlined text-[14px]">
@@ -2162,15 +2236,16 @@ const ClientManager: React.FC = () => {
                 </div>
 
                 {/* 3. Action Button Header */}
-                <div className="w-32 shrink-0 text-center">Configurar</div>
+                <div className="w-28 shrink-0 text-center">Configurar</div>
               </div>
 
               {/* Rows */}
               {paginatedClients.map((biz) => {
-                const { planType, plansCount, exclusions, siglas, driver, isActive } = biz;
+                const { planType, plansCount, exclusions, siglas, driver, isActive, plans, subNames, bags, bagsSunMon, bagsWedSun } = biz;
 
 
                 const isMorning = biz.routeType === 'Matutina';
+                const isMultiClient = (plans && plans.length > 1) || (subNames && subNames.length > 1);
 
                 return (
                   <div
@@ -2216,8 +2291,8 @@ const ClientManager: React.FC = () => {
                                 siglas: siglas,
                                 driver: driver === 'SIN ASIGNAR' ? undefined : driver,
                                 isActive: val,
-                                bags: calculateBagsForClient(biz.email),
-                                tiempos: getClientTiempos(biz.email)
+                                bags: calculateBagsForClient(biz.email, biz.name, currentDayIndex),
+                                tiempos: getClientTiempos(biz.email, biz.name)
                               });
                             }}
                             className="sr-only peer"
@@ -2226,11 +2301,11 @@ const ClientManager: React.FC = () => {
                         </label>
                       </div>
 
-                      {/* 2. Unified Row Columns: Name, Address, Plan, Tiempos, Driver */}
-                      <div className="flex-1 min-w-0 flex flex-col lg:flex-row lg:items-center gap-2 md:gap-3">
+                      {/* 2. Unified Row Columns: Name, Address, Plan, Tiempos, Bolsas, Driver */}
+                      <div className="flex-1 min-w-0 flex flex-col lg:flex-row lg:items-center gap-2 md:gap-2.5">
                         
                         {/* Route Order Column */}
-                        <div className="w-full lg:w-[8%] lg:min-w-[70px] shrink-0 bg-gradient-to-br from-blue-50/70 to-blue-50/30 text-blue-900 border border-blue-200/50 p-1.5 px-2 rounded-lg flex items-center gap-1 select-none shadow-sm hover:shadow hover:border-blue-350 transition-all duration-200">
+                        <div className="w-full lg:w-[7%] lg:min-w-[65px] shrink-0 bg-gradient-to-br from-blue-50/70 to-blue-50/30 text-blue-900 border border-blue-200/50 p-1.5 px-2 rounded-lg flex items-center gap-1 select-none shadow-sm hover:shadow hover:border-blue-350 transition-all duration-200">
                           <span className="material-symbols-outlined text-[14px] text-blue-650 bg-blue-100 p-0.5 rounded border border-blue-200/20 shrink-0">tag</span>
                           <div className="flex flex-col text-left min-w-0">
                             <span className="text-[7px] font-black uppercase tracking-wider text-blue-500/85 leading-none">Ruta №</span>
@@ -2241,7 +2316,7 @@ const ClientManager: React.FC = () => {
                         </div>
 
                         {/* A. Name & Route Type Column */}
-                        <div className="w-full lg:w-[18%] lg:min-w-[180px] shrink-0 flex flex-col gap-1 min-w-0">
+                        <div className="w-full lg:w-[16%] lg:min-w-[160px] shrink-0 flex flex-col gap-1 min-w-0">
                           <h4 className="text-xs md:text-sm font-black text-slate-900 uppercase tracking-tight truncate" title={biz.name || ''}>
                             {(biz.name || '').toUpperCase()}
                           </h4>
@@ -2253,6 +2328,14 @@ const ClientManager: React.FC = () => {
                             }`}>
                               {isMorning ? '🌅 Matutina' : '🌇 Vespertina'}
                             </span>
+                            {isMultiClient && (
+                              <span
+                                className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 shrink-0"
+                                title={`Mismo domicilio (${plans.length} clientes individuales separados por &)`}
+                              >
+                                👥 {plans.length} Planes (&amp;)
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleSwitchClientRoute(biz)}
@@ -2319,34 +2402,115 @@ const ClientManager: React.FC = () => {
                         {/* C. Logistics Badges - Horizontal on Desktop */}
                         {isActive ? (
                           <>
-                            {/* Plan Card */}
-                            <div className="w-full lg:w-[15%] lg:min-w-[130px] shrink-0 bg-gradient-to-br from-purple-50/70 to-purple-50/30 text-purple-900 border border-purple-200/50 p-1.5 px-2.5 rounded-lg flex items-center gap-2 select-none shadow-sm hover:shadow hover:border-purple-300 transition-all duration-200">
-                              <span className="material-symbols-outlined text-[16px] text-purple-650 bg-purple-100 p-1 rounded-lg border border-purple-200/20 shrink-0">restaurant</span>
-                              <div className="flex flex-col text-left min-w-0">
-                                <span className="text-[7px] font-black uppercase tracking-wider text-purple-500/85 leading-none">Plan</span>
-                                <span className="text-[11px] font-black mt-0.5 uppercase text-purple-950 truncate">{planType || 'NINGUNO'}</span>
+                            {/* Plan Dropdown Card */}
+                            <div className="w-full lg:w-[14%] lg:min-w-[135px] shrink-0 bg-gradient-to-br from-purple-50/70 to-purple-50/30 text-purple-900 border border-purple-200/50 p-1.5 px-2 rounded-lg flex items-start gap-1.5 shadow-sm hover:shadow hover:border-purple-300 transition-all duration-200">
+                              <span className="material-symbols-outlined text-[15px] text-purple-650 bg-purple-100 p-1 rounded-lg border border-purple-200/20 shrink-0 mt-0.5">restaurant</span>
+                              <div className="flex flex-col text-left min-w-0 flex-1 gap-1">
+                                <span className="text-[7px] font-black uppercase tracking-wider text-purple-500/85 leading-none">
+                                  Plan {plans.length > 1 ? `(${plans.length})` : ''}
+                                </span>
+                                <div className="flex flex-col gap-1">
+                                  {plans.map((pItem: PlanItem, pIdx: number) => {
+                                    const currentPlanUpper = (pItem.planType || 'HEALTHY').toUpperCase();
+                                    const planOptionsList = PLAN_OPTIONS.includes(currentPlanUpper as any)
+                                      ? [...PLAN_OPTIONS]
+                                      : [currentPlanUpper, ...PLAN_OPTIONS];
+                                    const personLabel = pItem.clientName || subNames[pIdx] || `P${pIdx + 1}`;
+
+                                    return (
+                                      <div key={pItem.id || pIdx} className="flex flex-col gap-0.5">
+                                        {plans.length > 1 && (
+                                          <span className="text-[7px] font-black text-purple-700/80 uppercase truncate" title={personLabel}>
+                                            {personLabel}
+                                          </span>
+                                        )}
+                                        <select
+                                          value={currentPlanUpper}
+                                          disabled={savingClientId === biz.id}
+                                          onChange={(e) => handleInlinePlanOrSiglasUpdate(biz, pIdx, { planType: e.target.value })}
+                                          className="w-full bg-white/90 hover:bg-white border border-purple-200 focus:border-purple-500 rounded px-1.5 py-0.5 text-[10px] font-black uppercase text-purple-950 focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer shadow-2xs transition-all"
+                                          title={`Actualizar Plan de ${personLabel}`}
+                                        >
+                                          {planOptionsList.map(opt => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
 
-                            {/* Tiempos / Siglas Card */}
-                            <div className="w-full lg:w-[18%] lg:min-w-[160px] shrink-0 bg-gradient-to-br from-indigo-50/70 to-indigo-50/30 text-indigo-900 border border-indigo-200/50 p-1.5 px-2.5 rounded-lg flex items-center gap-2 select-none shadow-sm hover:shadow hover:border-indigo-300 transition-all duration-200">
-                              <span className="material-symbols-outlined text-[16px] text-indigo-650 bg-indigo-100 p-1 rounded-lg border border-indigo-200/20 shrink-0">nutrition</span>
+                            {/* Tiempos / Siglas Dropdown Card */}
+                            <div className="w-full lg:w-[16%] lg:min-w-[155px] shrink-0 bg-gradient-to-br from-indigo-50/70 to-indigo-50/30 text-indigo-900 border border-indigo-200/50 p-1.5 px-2 rounded-lg flex items-start gap-1.5 shadow-sm hover:shadow hover:border-indigo-300 transition-all duration-200">
+                              <span className="material-symbols-outlined text-[15px] text-indigo-650 bg-indigo-100 p-1 rounded-lg border border-indigo-200/20 shrink-0 mt-0.5">nutrition</span>
+                              <div className="flex flex-col text-left min-w-0 flex-1 gap-1">
+                                <span className="text-[7px] font-black uppercase tracking-wider text-indigo-500/85 leading-none">
+                                  Tiempos / Siglas
+                                </span>
+                                <div className="flex flex-col gap-1">
+                                  {plans.map((pItem: PlanItem, pIdx: number) => {
+                                    const currentSiglas = normalizeSiglas(pItem.siglas);
+                                    const personLabel = pItem.clientName || subNames[pIdx] || `P${pIdx + 1}`;
+
+                                    return (
+                                      <div key={pItem.id || pIdx} className="flex flex-col gap-0.5">
+                                        {plans.length > 1 && (
+                                          <span className="text-[7px] font-black text-indigo-700/80 uppercase truncate" title={personLabel}>
+                                            {personLabel}
+                                          </span>
+                                        )}
+                                        <div className="flex items-center gap-1">
+                                          <select
+                                            value={currentSiglas}
+                                            disabled={savingClientId === biz.id}
+                                            onChange={(e) => handleInlinePlanOrSiglasUpdate(biz, pIdx, { siglas: e.target.value })}
+                                            className="flex-1 min-w-0 bg-white/90 hover:bg-white border border-indigo-200 focus:border-indigo-500 rounded px-1.5 py-0.5 text-[10px] font-black text-indigo-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-2xs transition-all"
+                                            title={`Actualizar Tiempos / Siglas de ${personLabel}`}
+                                          >
+                                            {SIGLAS_OPTIONS.map(opt => (
+                                              <option key={opt.siglas} value={opt.siglas}>
+                                                {opt.siglas} — {opt.package} ({opt.tiempos}T)
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <span className="font-mono text-[9px] text-indigo-700 bg-white border border-indigo-200 px-1 py-0.5 rounded font-black shadow-2xs shrink-0" title={`${pItem.tiempos} platillo(s) al día`}>
+                                            {pItem.tiempos}T
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Informative Bolsas Card */}
+                            <div
+                              className="w-full lg:w-[11%] lg:min-w-[110px] shrink-0 bg-gradient-to-br from-pink-50/80 to-rose-50/40 text-pink-950 border border-pink-200/70 p-1.5 px-2 rounded-lg flex items-center gap-1.5 select-none shadow-sm hover:shadow hover:border-pink-300 transition-all duration-200"
+                              title={`Dom/Lun (3 días): ${bagsSunMon} bolsa(s) • Mié/Jue + Sáb/Dom (4 días): ${bagsWedSun} bolsa(s)`}
+                            >
+                              <span className="material-symbols-outlined text-[15px] text-pink-650 bg-pink-100 p-1 rounded-lg border border-pink-200/40 shrink-0">shopping_bag</span>
                               <div className="flex flex-col text-left min-w-0">
-                                <span className="text-[7px] font-black uppercase tracking-wider text-indigo-500/85 leading-none">Tiempos / Siglas</span>
-                                <span className="text-[11px] font-black mt-0.5 text-indigo-950 flex items-center gap-1 truncate">
-                                  <span>{plansCount} {plansCount === 1 ? 'V' : 'Vs'}</span>
-                                  <span className="font-mono text-[8px] text-indigo-700 bg-white border border-indigo-200 px-1 py-0.25 rounded font-black shadow-sm shrink-0">{siglas}</span>
+                                <span className="text-[7px] font-black uppercase tracking-wider text-pink-600/90 leading-none">Bolsas</span>
+                                <span className="text-[11px] font-black mt-0.5 text-pink-950 flex items-center gap-1 truncate">
+                                  <span>{bags}</span>
+                                  <span className="text-[8px] font-extrabold uppercase text-pink-700">{bags === 1 ? 'Bolsa' : 'Bolsas'}</span>
+                                </span>
+                                <span className="text-[7px] font-bold text-pink-700/80 leading-none mt-0.5 truncate">
+                                  3d:{bagsSunMon} • 4d:{bagsWedSun}
                                 </span>
                               </div>
                             </div>
 
                             {/* Repartidor Card */}
-                            <div className={`w-full lg:w-[16%] lg:min-w-[140px] shrink-0 border p-1.5 px-2.5 rounded-lg flex items-center gap-2 select-none shadow-sm hover:shadow transition-all duration-200 ${
+                            <div className={`w-full lg:w-[14%] lg:min-w-[130px] shrink-0 border p-1.5 px-2 rounded-lg flex items-center gap-1.5 select-none shadow-sm hover:shadow transition-all duration-200 ${
                               driver === 'SIN ASIGNAR'
                                 ? 'bg-gradient-to-br from-rose-50/80 to-rose-50/40 text-rose-800 border-rose-200/60 animate-pulse'
                                 : 'bg-gradient-to-br from-emerald-50/70 to-emerald-50/30 text-emerald-900 border-emerald-250/50 hover:border-emerald-350'
                             }`}>
-                              <span className={`material-symbols-outlined text-[16px] p-1 rounded-lg border shrink-0 ${
+                              <span className={`material-symbols-outlined text-[15px] p-1 rounded-lg border shrink-0 ${
                                 driver === 'SIN ASIGNAR' 
                                   ? 'text-rose-650 bg-rose-100 border-rose-200/20' 
                                   : 'text-emerald-650 bg-emerald-100 border-emerald-200/20'
@@ -2372,7 +2536,7 @@ const ClientManager: React.FC = () => {
                     </div>
 
                     {/* 3. Action Icon to Edit Column Configurations */}
-                    <div className="w-full lg:w-32 shrink-0 flex items-center justify-end lg:justify-center border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
+                    <div className="w-full lg:w-28 shrink-0 flex items-center justify-end lg:justify-center border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-100">
                       <button
                         type="button"
                         onClick={() => openEditModal(biz)}
@@ -2633,34 +2797,74 @@ const ClientManager: React.FC = () => {
                       No has agregado ningún plan. Debes agregar al menos uno para guardar los cambios.
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1 custom-scrollbar">
-                      {modalPlansList.map((plan) => (
-                        <div key={plan.id} className="flex items-center justify-between p-3 bg-black/40 border border-white/5 rounded-lg group hover:border-blue-500/30 transition-all">
-                          <div className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
-                                {plan.planType}
+                    <div className="space-y-2 max-h-[210px] overflow-y-auto pr-1 custom-scrollbar">
+                      {modalPlansList.map((plan, pIdx) => {
+                        const modalSubNames = splitClientNames(modalName || editingClient.name);
+                        const personLabel = plan.clientName || modalSubNames[pIdx] || `Cliente #${pIdx + 1}`;
+                        const currentPlanUpper = (plan.planType || 'HEALTHY').toUpperCase();
+                        const planOptionsList = PLAN_OPTIONS.includes(currentPlanUpper as any)
+                          ? [...PLAN_OPTIONS]
+                          : [currentPlanUpper, ...PLAN_OPTIONS];
+
+                        return (
+                          <div key={plan.id || pIdx} className="flex flex-col gap-2 p-3 bg-black/40 border border-white/5 rounded-lg group hover:border-blue-500/30 transition-all">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-black text-blue-300 uppercase tracking-wider truncate">
+                                👤 {personLabel}
                               </span>
-                              <span className="text-xs text-white font-bold">{plan.package}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModalPlansList(modalPlansList.filter((_, idx) => idx !== pIdx));
+                                }}
+                                className="text-gray-500 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition-all"
+                                title="Eliminar este plan"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">delete</span>
+                              </button>
                             </div>
-                            <div className="flex items-center gap-3 text-[10px] text-gray-400 font-mono mt-0.5">
-                              <span>Siglas: <strong className="text-gray-200 font-bold">{plan.siglas}</strong></span>
-                              <span>•</span>
-                              <span>Platos/día: <strong className="text-gray-200 font-bold">{plan.tiempos}</strong></span>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[8px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">Plan</label>
+                                <select
+                                  value={currentPlanUpper}
+                                  onChange={(e) => {
+                                    const nextPlan = e.target.value.toUpperCase();
+                                    setModalPlansList(modalPlansList.map((item, idx) => idx === pIdx ? { ...item, planType: nextPlan } : item));
+                                  }}
+                                  className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                >
+                                  {planOptionsList.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[8px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">Tiempos / Siglas</label>
+                                <select
+                                  value={normalizeSiglas(plan.siglas)}
+                                  onChange={(e) => {
+                                    const sigConfig = getSiglasConfig(e.target.value);
+                                    setModalPlansList(modalPlansList.map((item, idx) => idx === pIdx ? {
+                                      ...item,
+                                      siglas: sigConfig.siglas,
+                                      package: sigConfig.package,
+                                      tiempos: sigConfig.tiempos
+                                    } : item));
+                                  }}
+                                  className="w-full bg-slate-900 border border-white/15 rounded-lg px-2 py-1 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                >
+                                  {SIGLAS_OPTIONS.map(opt => (
+                                    <option key={opt.siglas} value={opt.siglas}>
+                                      {opt.siglas} — {opt.package} ({opt.tiempos}T)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setModalPlansList(modalPlansList.filter(p => p.id !== plan.id));
-                            }}
-                            className="text-gray-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 animate-fade-in"
-                            title="Eliminar este plan"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -2683,9 +2887,11 @@ const ClientManager: React.FC = () => {
                             }
                           }}
                         >
+                          <option value="NINGUNO">NINGUNO</option>
                           <option value="HEALTHY">HEALTHY</option>
                           <option value="SLIM">SLIM</option>
                           <option value="STRONG">STRONG</option>
+                          <option value="SLIM/HEALTHY">SLIM/HEALTHY</option>
                           <option value="PERSONALIZADO">OTRO PLAN...</option>
                         </select>
                       </div>
@@ -2699,17 +2905,17 @@ const ClientManager: React.FC = () => {
                             const pkg = e.target.value;
                             setModalNewPackage(pkg);
                             if (pkg !== 'Personalizado...') {
-                              setModalNewSiglas(PACKAGE_SIGLAS[pkg] || '');
+                              setModalNewSiglas(PACKAGE_SIGLAS[pkg] || 'C');
                             }
                           }}
                         >
-                          <option value="Comida">Comida (1 tiempo)</option>
-                          <option value="Comida + Cena">Comida + Cena (2 tiempos)</option>
-                          <option value="Desayuno + Comida">Desayuno + Comida (2 tiempos)</option>
-                          <option value="Desayuno + Comida + Cena">Desayuno + Comida + Cena (3 tiempos)</option>
-                          <option value="Desayuno + Cena">Desayuno + Cena (2 tiempos)</option>
-                          <option value="Desayuno">Desayuno (1 tiempo)</option>
-                          <option value="Cena">Cena (1 tiempo)</option>
+                          <option value="Comida">C — Comida (1 tiempo)</option>
+                          <option value="Comida + Cena">C+C — Comida + Cena (2 tiempos)</option>
+                          <option value="Desayuno + Comida">D+C — Desayuno + Comida (2 tiempos)</option>
+                          <option value="Desayuno + Comida + Cena">D+C+C — Desayuno + Comida + Cena (3 tiempos)</option>
+                          <option value="Desayuno">De — Desayuno (1 tiempo)</option>
+                          <option value="Cena">Ce — Cena (1 tiempo)</option>
+                          <option value="Desayuno + Cena">D+Ce — Desayuno + Cena (2 tiempos)</option>
                           <option value="Personalizado...">Personalizado / Otro...</option>
                         </select>
                       </div>
@@ -2749,7 +2955,7 @@ const ClientManager: React.FC = () => {
                           type="text"
                           disabled
                           placeholder="Ej: C"
-                          className="w-full bg-black/20 border border-white/5 rounded-lg px-2.5 py-2 text-xs text-gray-400 uppercase font-mono cursor-not-allowed"
+                          className="w-full bg-black/20 border border-white/5 rounded-lg px-2.5 py-2 text-xs text-gray-400 font-mono cursor-not-allowed"
                           value={modalNewSiglas}
                         />
                       </div>
@@ -2766,8 +2972,12 @@ const ClientManager: React.FC = () => {
                               ? modalNewCustomTiempos 
                               : (PACKAGE_TIEMPOS[modalNewPackage] || 1);
 
+                            const modalSubNames = splitClientNames(modalName || editingClient.name);
+                            const nextIdx = modalPlansList.length;
+
                             const newPlanItem: PlanItem = {
                               id: Date.now().toString(),
+                              clientName: modalSubNames[nextIdx] || (modalName || editingClient.name).trim(),
                               planType: finalPlanType,
                               package: modalNewPackage,
                               siglas: modalNewSiglas || 'C',
@@ -2808,33 +3018,39 @@ const ClientManager: React.FC = () => {
 
                 {/* Real-time Bags Calculator Card */}
                 {(() => {
-                  const sumTiempos = modalPlansList.reduce((acc, plan) => acc + plan.tiempos, 0);
+                  const bagsCalc = calculateBagsFromPlans(
+                    modalPlansList,
+                    modalName || editingClient.name,
+                    modalExtraDishes,
+                    currentDayIndex
+                  );
+                  const sumTiempos = bagsCalc.totalTiempos;
                   const dishesSunMon = (sumTiempos * 3) + modalExtraDishes;
-                  const bagsSunMon = Math.ceil(dishesSunMon / 6);
+                  const bagsSunMon = bagsCalc.bagsSunMon;
                   
-                  const dishesWedThu = (sumTiempos * 2) + modalExtraDishes;
-                  const bagsWedThu = Math.ceil(dishesWedThu / 6);
+                  const dishesWedSun = (sumTiempos * 4) + modalExtraDishes;
+                  const bagsWedSun = bagsCalc.bagsWedSun;
                   
-                  const isSundayOrMonday = currentDayIndex === 0 || currentDayIndex === 1 || currentDayIndex === 2;
+                  const isSundayOrMonday = bagsCalc.activeCycle === 'DOM_LUN_3D';
                   
                   return (
                      <div className="bg-pink-500/5 border border-pink-500/10 rounded-xl p-4 mt-2 space-y-3">
                       <label className="block text-[10px] font-black text-pink-400 uppercase tracking-widest flex items-center gap-2">
                         <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
-                        Cálculo de Bolsas en Tiempo Real
+                        Cálculo de Bolsas en Tiempo Real {modalPlansList.length > 1 ? `(${modalPlansList.length} clientes en el domicilio)` : ''}
                       </label>
                       
-                      {/* Sunday/Monday */}
+                      {/* Sunday/Monday (3 days) */}
                       <div className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isSundayOrMonday ? 'bg-pink-500/10 border-pink-500/30' : 'bg-black/20 border-white/5 opacity-70'}`}>
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white">Entrega Domingo / Lunes</span>
+                            <span className="text-xs font-bold text-white">Entrega Domingo / Lunes (Lun, Mar, Mié)</span>
                             {isSundayOrMonday && (
                               <span className="bg-pink-500 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">ACTIVA</span>
                             )}
                           </div>
                           <span className="text-[10px] text-gray-400 font-mono">
-                            3 días × ({sumTiempos} platillos/día) + {modalExtraDishes} extras = {dishesSunMon} platillos
+                            3 días × ({sumTiempos} platillos/día) + {modalExtraDishes} extras = {dishesSunMon} platillos (máx 6/bolsa por cliente)
                           </span>
                         </div>
                         <div className="text-right">
@@ -2844,22 +3060,22 @@ const ClientManager: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Wednesday/Thursday */}
+                      {/* Wednesday/Thursday + Weekend (4 days) */}
                       <div className={`flex items-center justify-between p-3 rounded-lg border transition-all ${!isSundayOrMonday ? 'bg-pink-500/10 border-pink-500/30' : 'bg-black/20 border-white/5 opacity-70'}`}>
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white">Entrega Miércoles / Jueves</span>
+                            <span className="text-xs font-bold text-white">Entrega Mié / Jue + Sábado y Domingo</span>
                             {!isSundayOrMonday && (
                               <span className="bg-pink-500 text-white font-black text-[8px] px-1.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">ACTIVA</span>
                             )}
                           </div>
                           <span className="text-[10px] text-gray-400 font-mono">
-                            2 días × ({sumTiempos} platillos/día) + {modalExtraDishes} extras = {dishesWedThu} platillos
+                            4 días (Jue, Vie, Sáb, Dom) × ({sumTiempos} platillos/día) + {modalExtraDishes} extras = {dishesWedSun} platillos
                           </span>
                         </div>
                         <div className="text-right">
                           <div className="bg-pink-500/20 text-pink-300 font-mono font-black text-sm px-3 py-1.5 rounded-lg border border-pink-500/30 flex items-center gap-1">
-                            {bagsWedThu} <span className="text-[10px] font-bold">{bagsWedThu === 1 ? 'BOLSA' : 'BOLSAS'}</span>
+                            {bagsWedSun} <span className="text-[10px] font-bold">{bagsWedSun === 1 ? 'BOLSA' : 'BOLSAS'}</span>
                           </div>
                         </div>
                       </div>
