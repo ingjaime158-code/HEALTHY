@@ -14,7 +14,7 @@ import MapContent from '../components/MapContent';
 
 import { useRealtimeTracking } from '../hooks/useRealtimeTracking';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
-import { buildDriverProgress, DriverRouteInfo } from '../services/routeMonitorService';
+import { buildDriverProgress, DriverRouteInfo, RouteClient } from '../services/routeMonitorService';
 import { NewClientSidebar } from '../components/NewClientSidebar';
 import DispatchSidebar from '../components/DispatchSidebar';
 import { useAppStore } from '../store/useStore';
@@ -151,13 +151,19 @@ const FleetMonitor = () => {
     const [selectedRoute, setSelectedRoute] = useState<'morning' | 'evening' | null>('evening');
     const [routeDrivers, setRouteDrivers] = useState<DriverRouteInfo[]>([]);
     const [selectedDriverForDetails, setSelectedDriverForDetails] = useState<DriverRouteInfo | null>(null);
+    const [selectedClient, setSelectedClient] = useState<RouteClient | null>(null);
     const [loadingRoute, setLoadingRoute] = useState(false);
     const [showMyMap, setShowMyMap] = useState(false);
     const [myMapUrl, setMyMapUrl] = useState('');
 
     useEffect(() => {
         setSelectedDriverForDetails(null);
+        setSelectedClient(null);
     }, [selectedRoute]);
+
+    useEffect(() => {
+        setSelectedClient(null);
+    }, [selectedDriverForDetails]);
 
     // --- Nearest Base Assignment ---
     const [isDispatchOpen, setIsDispatchOpen] = useState(true);
@@ -903,7 +909,7 @@ const FleetMonitor = () => {
                             driverPositions={driverPositions}
                             driverNames={driverNames}
                             driverColors={driverColors}
-                            businesses={[]}
+                            businesses={businesses}
                             units={units}
                             showBusinesses={showBusinesses}
                             showUnits={showUnits}
@@ -921,6 +927,12 @@ const FleetMonitor = () => {
                             }}
                             kmlUrl={showMyMap ? myMapUrl : null}
                             showTraffic={showTraffic}
+                            routeDrivers={routeDrivers}
+                            selectedDriverForDetails={selectedDriverForDetails}
+                            selectedRoute={selectedRoute}
+                            selectedClient={selectedClient}
+                            onSelectClient={setSelectedClient}
+                            isDispatchOpen={isDispatchOpen}
                         />
 
                         {/* Sidebar: Nueva Entrega */}
@@ -1010,6 +1022,9 @@ const FleetMonitor = () => {
                 handleSelectRoute={handleSelectRoute}
                 showTraffic={showTraffic}
                 setShowTraffic={setShowTraffic}
+
+                selectedClient={selectedClient}
+                onSelectClient={setSelectedClient}
             />
         </div>
     );

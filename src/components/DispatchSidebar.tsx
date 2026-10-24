@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trip, Business, Driver } from '../services/dataService';
-import { DriverRouteInfo } from '../services/routeMonitorService';
+import { DriverRouteInfo, RouteClient } from '../services/routeMonitorService';
 
 export interface DispatchSidebarProps {
     isDispatchOpen: boolean;
@@ -30,6 +30,9 @@ export interface DispatchSidebarProps {
     handleSelectRoute: (route: 'morning' | 'evening' | null) => Promise<void>;
     showTraffic: boolean;
     setShowTraffic: (show: boolean) => void;
+
+    selectedClient?: RouteClient | null;
+    onSelectClient?: (client: RouteClient | null) => void;
 }
 
 const DRIVER_COLORS = [
@@ -45,7 +48,8 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     updateTrip, updateTripStatus,
     showToast, handleCopyClientLinkSidebar, handleCopyTrip,
     copiedClientTripId, copiedTripId, calcWaitCost,
-    handleSelectRoute, showTraffic, setShowTraffic
+    handleSelectRoute, showTraffic, setShowTraffic,
+    selectedClient = null, onSelectClient
 }) => {
     const [editingTripId, setEditingTripId] = useState<string | null>(null);
     const [editTripFields, setEditTripFields] = useState<{ clientName: string; driverId: string; waitTimeMinutes: number; waitTimeCost: number; cost: number; scheduledAt?: string }>({ clientName: '', driverId: '', waitTimeMinutes: 0, waitTimeCost: 0, cost: 0, scheduledAt: '' });
@@ -189,8 +193,22 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                     <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider px-1 mb-1">
                                         {selectedDriverForDetails?.clients?.length || 0} CLIENTES EN RUTA
                                     </p>
-                                    {(selectedDriverForDetails?.clients || []).map((client, cIdx) => (
-                                        <div key={cIdx} className="bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg p-3 flex items-start gap-3 transition-colors">
+                                    {(selectedDriverForDetails?.clients || []).map((client, cIdx) => {
+                                        const isSelected = selectedClient && (
+                                            selectedClient.name === client.name && 
+                                            (selectedClient.repartidor === client.repartidor || !client.repartidor)
+                                        );
+
+                                        return (
+                                        <div 
+                                            key={cIdx} 
+                                            onClick={() => onSelectClient?.(isSelected ? null : client)}
+                                            className={`border rounded-lg p-3 flex items-start gap-3 transition-all cursor-pointer ${
+                                                isSelected 
+                                                    ? 'bg-indigo-600/20 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.25)] ring-1 ring-indigo-400/50' 
+                                                    : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.04]'
+                                            }`}
+                                        >
                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
                                                 {client.order < 9999 ? client.order : cIdx + 1}
                                             </div>
@@ -227,7 +245,8 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                 <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ) : selectedRoute && routeDrivers.length > 0 ? (
