@@ -84,6 +84,7 @@ const UserAccess = React.lazy(() => import('./pages/UserAccess'));
 const TripTracking = React.lazy(() => import('./pages/TripTracking'));
 const DriverTracker = React.lazy(() => import('./pages/DriverTracker'));
 const ClientConfirmation = React.lazy(() => import('./pages/ClientConfirmation'));
+const ClientLiveTracking = React.lazy(() => import('./pages/ClientLiveTracking'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 const GoogleSheetView = React.lazy(() => import('./pages/GoogleSheetView'));
 const MileageDashboard = React.lazy(() => import('./pages/MileageDashboard'));
@@ -110,6 +111,7 @@ const App = () => {
                         <Route path="/" element={<Navigate to="/login" replace />} />
                         <Route path="/login" element={<Login />} />
                         <Route path="/confirmacion/:tripId" element={<ClientConfirmation />} />
+                        <Route path="/entrega" element={<ClientLiveTracking />} />
                         <Route path="/tracking/:tripId" element={<TripTracking />} />
                         <Route path="/driver/:tripId" element={<DriverTracker />} />
                         <Route path="/repartidor" element={

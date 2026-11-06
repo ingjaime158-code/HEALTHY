@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Trip, Business, Driver } from '../services/dataService';
 import { DriverRouteInfo, RouteClient } from '../services/routeMonitorService';
+import { supabase } from '../services/supabaseClient';
 
 export interface DispatchSidebarProps {
     isDispatchOpen: boolean;
@@ -55,6 +56,63 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     const [editTripFields, setEditTripFields] = useState<{ clientName: string; driverId: string; waitTimeMinutes: number; waitTimeCost: number; cost: number; scheduledAt?: string }>({ clientName: '', driverId: '', waitTimeMinutes: 0, waitTimeCost: 0, cost: 0, scheduledAt: '' });
     const [editWaitRate, setEditWaitRate] = useState<number>(0);
     const [savingEdit, setSavingEdit] = useState(false);
+    const [pingingDriverName, setPingingDriverName] = useState<string | null>(null);
+
+    // 🛰️ Validación de horario laboral (8:00 AM a 11:40 PM) para respetar privacidad
+    const isWithinWorkingHours = (): boolean => {
+        try {
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Mexico_City',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: false
+            });
+            const parts = formatter.formatToParts(new Date());
+            const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+            const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+            const totalMinutes = hour * 60 + minute;
+            // 8:00 AM = 480 min | 11:40 PM (23:40) = 1420 min
+            return totalMinutes >= 480 && totalMinutes <= 1420;
+        } catch {
+            return true;
+        }
+    };
+
+    const handleRequestDriverGps = async (driverName: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+
+        if (!isWithinWorkingHours()) {
+            showToast('⚠️ Fuera de horario laboral (8:00 AM - 11:40 PM). Respetando privacidad.', 'error');
+            return;
+        }
+
+        const match = drivers.find(d => d.name.trim().toLowerCase() === driverName.trim().toLowerCase());
+        if (!match?.id) {
+            showToast(`No se encontró el identificador del chofer ${driverName}.`, 'error');
+            return;
+        }
+
+        setPingingDriverName(driverName);
+        showToast(`🛰️ Solicitando ubicación GPS a ${driverName}...`, 'info');
+
+        try {
+            const channel = supabase.channel(`gps:${match.id}`);
+            await channel.subscribe();
+            await channel.send({
+                type: 'broadcast',
+                event: 'ping',
+                payload: { timestamp: Date.now(), requester: 'Monitor Web' }
+            });
+            setTimeout(() => {
+                showToast(`✅ Señal de GPS solicitada a ${driverName}.`, 'success');
+                setPingingDriverName(null);
+            }, 1200);
+        } catch (err) {
+            console.error('Error enviando ping GPS:', err);
+            showToast(`Error al enviar solicitud a ${driverName}.`, 'error');
+            setPingingDriverName(null);
+        }
+    };
 
     return (
             <div className={`absolute top-0 bottom-0 right-0 z-[700] flex items-stretch transition-all duration-300 ${isDispatchOpen ? 'w-[400px]' : 'w-0'}`}>
@@ -329,6 +387,17 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                 Última entrega: {new Date(driver.lastDeliveredAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         )}
+
+                                        {/* Botón: Solicitar GPS en Vivo (8:00 AM a 11:40 PM) */}
+                                        <button
+                                            onClick={(e) => handleRequestDriverGps(driver.driverName, e)}
+                                            disabled={pingingDriverName === driver.driverName}
+                                            className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 active:scale-95 text-indigo-300 border border-indigo-500/20 text-[11px] font-semibold transition-all disabled:opacity-50"
+                                            title="Fuerza a la app del chofer a enviar ubicación GPS de alta precisión (8:00 AM - 11:40 PM)"
+                                        >
+                                            <span className="material-symbols-outlined text-[15px]">satellite_alt</span>
+                                            <span>{pingingDriverName === driver.driverName ? 'Solicitando...' : 'Forzar GPS / Ping'}</span>
+                                        </button>
                                     </div>
                                 );
                             })
