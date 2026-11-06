@@ -54,13 +54,16 @@ export const createDriverSettlement = async (driverName: string, amount: number,
     }
 
     // 2. Update trips
-    const { error: tripError } = await supabase.from('trips')
-        .update({ driver_settled: true })
-        .in('id', tripIds);
-    
-    if (tripError) {
-        console.error('Error updating trips for driver settlement:', tripError);
-        // We probably shouldn't return null if the settlement was created, but log error
+    if (tripIds && tripIds.length > 0) {
+        const { error: tripError } = await supabase.from('trips')
+            .update({ driver_settled: true })
+            .in('id', tripIds);
+        
+        if (tripError) {
+            console.error('Error updating trips for driver settlement, rolling back settlement:', tripError);
+            await supabase.from('driver_settlements').delete().eq('id', settlement.id);
+            return null;
+        }
     }
 
     return {
@@ -112,15 +115,19 @@ export const createPaymentReceipt = async (clientId: string, amount: number, pay
     }
 
     // Update trips to link the receipt and mark as paid
-    const { error: tripError } = await supabase.from('trips')
-        .update({ 
-            receipt_id: receipt.id,
-            payment_status: 'Pagado'
-        })
-        .in('id', tripIds);
+    if (tripIds && tripIds.length > 0) {
+        const { error: tripError } = await supabase.from('trips')
+            .update({ 
+                receipt_id: receipt.id,
+                payment_status: 'Pagado'
+            })
+            .in('id', tripIds);
 
-    if (tripError) {
-        console.error('Error updating trips for payment receipt:', tripError);
+        if (tripError) {
+            console.error('Error updating trips for payment receipt, rolling back receipt:', tripError);
+            await supabase.from('payment_receipts').delete().eq('id', receipt.id);
+            return null;
+        }
     }
 
     return {

@@ -635,8 +635,9 @@ const ClientManager: React.FC = () => {
           }
         }
 
-        // 3. Save sequence order in Supabase
+        // 3. Save sequence order in Supabase (batch upsert instead of sequential N+1)
         showFeedbackToast(`💾 [${dIdx + 1}/${activeDriversForRoute.length}] Guardando secuencia de ${driverName}...`);
+        const sequenceBatch: Business[] = [];
         for (let index = 0; index < newStops.length; index++) {
           const stop = newStops[index];
           const biz = dbClients.find(c => c.id === stop.id);
@@ -646,16 +647,16 @@ const ClientManager: React.FC = () => {
           currentConfig.routeOrder = index + 1;
           const updatedEmail = JSON.stringify(currentConfig);
 
-          const success = await updateBusiness({
+          sequenceBatch.push({
             ...biz,
             email: updatedEmail
           });
+        }
 
-          if (!success) {
-            await updateBusiness({
-              ...biz,
-              email: updatedEmail
-            });
+        if (sequenceBatch.length > 0) {
+          const seqSaved = await updateBusinessesBatch(sequenceBatch);
+          if (!seqSaved) {
+            throw new Error(`No se pudo guardar la secuencia de ${driverName} en Supabase.`);
           }
         }
 
@@ -1040,7 +1041,10 @@ const ClientManager: React.FC = () => {
       }
 
       if (batchList.length > 0) {
-        await updateBusinessesBatch(batchList);
+        const batchOk = await updateBusinessesBatch(batchList);
+        if (!batchOk) {
+          throw new Error('Error al guardar el cambio masivo de clientes en Supabase.');
+        }
       }
 
       setDbClients(updatedClients);
@@ -1049,6 +1053,7 @@ const ClientManager: React.FC = () => {
       showFeedbackToast(`🔄 ¡Se han ${active ? 'activado' : 'desactivado'} ${filtered.length} clientes masivamente!`);
     } catch (e) {
       console.error("Error bulk toggling clients:", e);
+      showFeedbackToast('❌ Error al actualizar el estado masivo de clientes en la base de datos.');
     } finally {
       setLoading(false);
     }
@@ -1380,50 +1385,62 @@ const ClientManager: React.FC = () => {
 
       // Execute batch updates for modified clients
       if (batchUpdates.length > 0) {
-        await updateBusinessesBatch(batchUpdates);
+        const batchSaved = await updateBusinessesBatch(batchUpdates);
+        if (!batchSaved) {
+          throw new Error('Error al guardar las actualizaciones de clientes en Supabase.');
+        }
       }
 
       // DESACTIVACIÓN AUTORITATIVA: Desactivar clientes de Supabase que ya no figuran activos en Excel
+      // Salvaguarda: solo desactivar si la pestaña activa trajo al menos 1 cliente activo válido
       const sheetActiveKeysStrict = new Set(
         sheetClients
           .filter(sc => sc.isActive)
           .map(sc => `${normalizeName(sc.name)}|||${normalizeAddress(sc.address)}`)
       );
 
-      const latestBusinesses = await getBusinesses();
-      const activeRouteDbClientsCurrent = latestBusinesses.filter(c => c.routeType === selectedRoute);
       let autoritativeDeactivated = 0;
-      const deactivationBatch: Business[] = [];
 
-      for (const dbc of activeRouteDbClientsCurrent) {
-        let dbConfig = parseClientProfile(dbc.email);
-        const isActiveInDb = dbConfig.isActive !== false;
+      if (sheetActiveKeysStrict.size > 0) {
+        const latestBusinesses = await getBusinesses();
+        const activeRouteDbClientsCurrent = latestBusinesses.filter(c => c.routeType === selectedRoute);
+        const deactivationBatch: Business[] = [];
 
-        if (isActiveInDb) {
-          // If the record was entered manually, do not deactivate it because it's not in Excel
-          if (dbConfig.isManual) {
-            continue;
-          }
+        for (const dbc of activeRouteDbClientsCurrent) {
+          let dbConfig = parseClientProfile(dbc.email);
+          const isActiveInDb = dbConfig.isActive !== false;
 
-          const dbKey = `${normalizeName(dbc.name)}|||${normalizeAddress(dbc.location || '')}`;
-          const dbName = normalizeName(dbc.name);
+          if (isActiveInDb) {
+            // If the record was entered manually, do not deactivate it because it's not in Excel
+            if (dbConfig.isManual) {
+              continue;
+            }
 
-          const hasExactActive = sheetActiveKeysStrict.has(dbKey);
-          const hasAnyActiveWithName = Array.from(sheetActiveKeysStrict).some(k => k.startsWith(`${dbName}|||`));
+            const dbKey = `${normalizeName(dbc.name)}|||${normalizeAddress(dbc.location || '')}`;
+            const dbName = normalizeName(dbc.name);
 
-          if (!hasExactActive && !hasAnyActiveWithName) {
-            dbConfig.isActive = false;
-            deactivationBatch.push({
-              ...dbc,
-              email: JSON.stringify(dbConfig)
-            });
-            autoritativeDeactivated++;
+            const hasExactActive = sheetActiveKeysStrict.has(dbKey);
+            const hasAnyActiveWithName = Array.from(sheetActiveKeysStrict).some(k => k.startsWith(`${dbName}|||`));
+
+            if (!hasExactActive && !hasAnyActiveWithName) {
+              dbConfig.isActive = false;
+              deactivationBatch.push({
+                ...dbc,
+                email: JSON.stringify(dbConfig)
+              });
+              autoritativeDeactivated++;
+            }
           }
         }
-      }
 
-      if (deactivationBatch.length > 0) {
-        await updateBusinessesBatch(deactivationBatch);
+        if (deactivationBatch.length > 0) {
+          const deactSaved = await updateBusinessesBatch(deactivationBatch);
+          if (!deactSaved) {
+            throw new Error('Error al desactivar en Supabase los clientes dados de baja en Excel.');
+          }
+        }
+      } else {
+        console.warn('[ClientManager] La pestaña activa de Google Sheets devolvió 0 clientes activos; se omitió la desactivación masiva por seguridad.');
       }
 
       await fetchClientsAndDrivers(true);
@@ -1433,9 +1450,9 @@ const ClientManager: React.FC = () => {
         toastMsg += ` Se desactivaron ${autoritativeDeactivated} clientes removidos de Excel.`;
       }
       showFeedbackToast(toastMsg);
-    } catch (e) {
+    } catch (e: any) {
       console.error('[ClientManager] Error syncing from Google Sheets:', e);
-      showFeedbackToast('❌ Error al sincronizar datos con Google Sheets.');
+      showFeedbackToast(`❌ ${e?.message || 'Error al sincronizar datos con Google Sheets.'}`);
     } finally {
       setIsSyncingSheets(false);
     }
@@ -3405,25 +3422,34 @@ const ClientManager: React.FC = () => {
           try {
             const rawBusinesses = await getBusinesses();
             let updatedCount = 0;
+            const aiBatchUpdates: Business[] = [];
 
             for (const dr of suggestion.driverRoutes) {
               for (let i = 0; i < dr.clients.length; i++) {
                 const client = dr.clients[i];
                 const matchDb = rawBusinesses.find((b: any) => b.id === client.id);
                 if (matchDb) {
-                  const profile = parseClientProfile(matchDb.email);
                   const updatedEmail = serializeClientProfile(matchDb.email, {
+                    driver: dr.driverName,
+                    routeOrder: i + 1,
                     [selectedRoute]: {
                       driver: dr.driverName,
                       routeOrder: i + 1
                     }
                   });
-                  await updateBusiness({
+                  aiBatchUpdates.push({
                     ...matchDb,
                     email: updatedEmail
                   });
                   updatedCount++;
                 }
+              }
+            }
+
+            if (aiBatchUpdates.length > 0) {
+              const batchOk = await updateBusinessesBatch(aiBatchUpdates);
+              if (!batchOk) {
+                throw new Error('Error al guardar la distribución sugerida en Supabase.');
               }
             }
 

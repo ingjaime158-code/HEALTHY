@@ -3,39 +3,57 @@ import React, { useEffect, useState } from 'react';
 import { Routes, Route, HashRouter, Navigate, useLocation } from 'react-router-dom';
 import { Analytics } from "@vercel/analytics/react";
 import Layout from './components/Layout';
-import { initializeAuth, getCurrentUserRole, getServerValidatedRole, isAuthenticated, getCurrentUserAllowedViews } from './services/authService';
+import { initializeAuth, getServerValidatedRole, isAuthenticated, getCurrentUserAllowedViews } from './services/authService';
 import { APIProvider } from '@vis.gl/react-google-maps';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
+const LoadingFallback = () => (
+    <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            <p className="text-sm font-medium text-gray-500">Cargando aplicación...</p>
+        </div>
+    </div>
+);
+
 const RoleGuard = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: string[] }) => {
-    const cachedRole = getCurrentUserRole();
-    const [validatedRole, setValidatedRole] = useState<string | null>(cachedRole); // Instant fallback
+    const [validatedRole, setValidatedRole] = useState<string | null>(null);
     const [checked, setChecked] = useState(false);
     const location = useLocation();
 
     useEffect(() => {
+        let active = true;
         getServerValidatedRole().then(({ role }) => {
-            // Only override cached role if server returns a valid role
-            // If server returns null (e.g. allowed_users table empty), keep cached role
-            setValidatedRole(role || cachedRole);
+            if (!active) return;
+            setValidatedRole(role);
             setChecked(true);
         });
-    }, []);
+        return () => { active = false; };
+    }, [location.pathname]);
 
     // Check raw authentication first
     if (!isAuthenticated()) {
         return <Navigate to="/login" replace />;
     }
 
-    // Default to 'Usuario' only if they are authenticated but role is missing from BOTH sources
-    const effectiveRole = validatedRole || cachedRole || 'Usuario';
+    // Do not mount protected views before server-side session & role validation completes
+    if (!checked) {
+        return <LoadingFallback />;
+    }
+
+    // Deny access when session or role could not be validated on the server
+    if (!validatedRole) {
+        return <Navigate to="/login" replace />;
+    }
+
+    const effectiveRole = validatedRole;
 
     // Per-user view restrictions: if the user has allowed_views configured,
     // use THOSE as the source of truth instead of the hardcoded allowedRoles on routes.
     // This allows an admin to grant a Usuario access to routes that normally only
     // Administrador can see.
-    if (checked && effectiveRole !== 'Administrador') {
+    if (effectiveRole !== 'Administrador') {
         const userViews = getCurrentUserAllowedViews();
         if (userViews.length > 0) {
             const currentPath = location.pathname;
@@ -49,7 +67,7 @@ const RoleGuard = ({ children, allowedRoles }: { children: React.ReactNode, allo
     }
 
     // Fall back to role-based check (for users without custom allowedViews)
-    if (checked && !allowedRoles.includes(effectiveRole)) {
+    if (!allowedRoles.includes(effectiveRole)) {
         if (effectiveRole === 'Chofer') return <Navigate to="/repartidor" replace />;
         if (effectiveRole === 'Usuario') return <Navigate to="/monitor" replace />;
         return <Navigate to="/monitor" replace />;
@@ -78,16 +96,6 @@ const EVENING_SHEET_ID = import.meta.env.VITE_EVENING_SHEET_ID || "1y7V-6nwmsJv_
 
 const MORNING_SHEET_URL = `https://docs.google.com/spreadsheets/d/${MORNING_SHEET_ID}/edit?gid=1075208342#gid=1075208342`;
 const EVENING_SHEET_URL = `https://docs.google.com/spreadsheets/d/${EVENING_SHEET_ID}/edit?gid=2039339913#gid=2039339913`;
-
-
-const LoadingFallback = () => (
-    <div className="flex h-screen w-full items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-            <p className="text-sm font-medium text-gray-500">Cargando aplicación...</p>
-        </div>
-    </div>
-);
 
 const App = () => {
     useEffect(() => {

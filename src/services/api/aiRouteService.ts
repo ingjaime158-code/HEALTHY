@@ -76,6 +76,44 @@ export async function fetchOSRMTableMatrix(points: Array<{ lat: number; lng: num
   }));
 
   const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  const n = sanitizedPoints.length;
+
+  /**
+   * Ensures a returned OSRM matrix covers all `n` points and has no null/undefined cells,
+   * filling any out-of-range (>= 60) or null cells with Haversine distance/duration.
+   */
+  const normalizeMatrix = (rawDistances: any[][], rawDurations: any[][]) => {
+    const distances: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
+    const durations: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
+
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) {
+          distances[i][j] = 0;
+          durations[i][j] = 0;
+          continue;
+        }
+        const osrmDist = rawDistances?.[i]?.[j];
+        const osrmDur = rawDurations?.[i]?.[j];
+        if (typeof osrmDist === 'number' && isFinite(osrmDist) && osrmDist > 0) {
+          distances[i][j] = osrmDist;
+          durations[i][j] = (typeof osrmDur === 'number' && isFinite(osrmDur) && osrmDur > 0)
+            ? osrmDur
+            : (osrmDist / 1000 / 30) * 3600;
+        } else {
+          const d = getHaversineDistance(
+            sanitizedPoints[i].lat,
+            sanitizedPoints[i].lng,
+            sanitizedPoints[j].lat,
+            sanitizedPoints[j].lng
+          ) * 1.35; // Factor vial urbano estimado
+          distances[i][j] = d;
+          durations[i][j] = (d / 1000 / 30) * 3600;
+        }
+      }
+    }
+    return { distances, durations };
+  };
 
   // Cap points to max 60 per request to avoid HTTP 414 URI Too Long
   const cappedPoints = sanitizedPoints.slice(0, 60);
@@ -100,9 +138,10 @@ export async function fetchOSRMTableMatrix(points: Array<{ lat: number; lng: num
       if (res.ok) {
         const data = await res.json();
         if (data.code === 'Ok' && Array.isArray(data.distances) && data.distances.length > 0) {
+          const normalized = normalizeMatrix(data.distances, data.durations || []);
           return {
-            distances: data.distances,
-            durations: data.durations || [],
+            distances: normalized.distances,
+            durations: normalized.durations,
             source: 'osrm-local'
           };
         }
@@ -126,9 +165,10 @@ export async function fetchOSRMTableMatrix(points: Array<{ lat: number; lng: num
     if (res.ok) {
       const data = await res.json();
       if (data.code === 'Ok' && Array.isArray(data.distances) && data.distances.length > 0) {
+        const normalized = normalizeMatrix(data.distances, data.durations || []);
         return {
-          distances: data.distances,
-          durations: data.durations || [],
+          distances: normalized.distances,
+          durations: normalized.durations,
           source: 'osrm-remote'
         };
       }
@@ -138,24 +178,8 @@ export async function fetchOSRMTableMatrix(points: Array<{ lat: number; lng: num
   }
 
   // 3. Guaranteed Safe Fallback: Haversine distance matrix
-  const n = sanitizedPoints.length;
-  const distances: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
-  const durations: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
-
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) {
-        distances[i][j] = 0;
-        durations[i][j] = 0;
-      } else {
-        const d = getHaversineDistance(sanitizedPoints[i].lat, sanitizedPoints[i].lng, sanitizedPoints[j].lat, sanitizedPoints[j].lng);
-        distances[i][j] = d;
-        durations[i][j] = (d / 1000 / 30) * 3600;
-      }
-    }
-  }
-
-  return { distances, durations, source: 'haversine' };
+  const fallback = normalizeMatrix([], []);
+  return { distances: fallback.distances, durations: fallback.durations, source: 'haversine' };
 }
 
 /**
@@ -405,7 +429,9 @@ export async function generateAISmartDistribution(params: {
           driverMatches++;
         }
       });
-      const confidence = Math.round((driverMatches / assignedClients.length) * 100) || 80;
+      const confidence = assignedClients.length > 0
+        ? Math.round((driverMatches / assignedClients.length) * 100)
+        : 0;
 
       const sortedClients = optimizedTspStops.map((t: any, index: number) => ({
         ...t.rawClient,
@@ -460,7 +486,7 @@ export async function generateAISmartDistribution(params: {
 
     return {
       driverRoutes,
-      overallConfidence: Math.min(100, Math.max(65, overallConfidence + 20)),
+      overallConfidence: Math.min(100, Math.max(0, overallConfidence)),
       totalClients: totalClientCount,
       insights,
       analyzedSnapshotsCount: telemetryHistory.length,

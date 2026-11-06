@@ -693,13 +693,30 @@ export interface DeliveryLog {
 export async function fetchTodayDeliveryLogs(
   routeType: 'morning' | 'evening'
 ): Promise<DeliveryLog[]> {
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const utcToday = now.toISOString().split('T')[0];
+  let localToday = utcToday;
+  try {
+    // Usar zona horaria operativa local (Monterrey / Ciudad de México) para que el turno
+    // vespertino no cambie al día siguiente a las 18:00 hrs.
+    localToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    localToday = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+
+  const candidateDates = Array.from(new Set([localToday, utcToday]));
 
   const { data, error } = await supabase
     .from('delivery_logs')
     .select('*')
     .eq('route_type', routeType)
-    .eq('delivery_date', today)
+    .in('delivery_date', candidateDates)
     .eq('status', 'delivered');
 
   if (error) {
@@ -707,7 +724,22 @@ export async function fetchTodayDeliveryLogs(
     return [];
   }
 
-  return data || [];
+  // Filtrar registros cuya marca de tiempo delivered_at corresponda al día local actual
+  // (compatible tanto con apps móviles que envían fecha UTC como con las que envían fecha local)
+  return (data || []).filter((log: DeliveryLog) => {
+    if (!log.delivered_at) return log.delivery_date === localToday;
+    try {
+      const deliveredLocalDay = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Mexico_City',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(log.delivered_at));
+      return deliveredLocalDay === localToday;
+    } catch {
+      return log.delivery_date === localToday;
+    }
+  });
 }
 
 // ── Build driver progress from master sheet + individual driver sheets ────────

@@ -1,31 +1,20 @@
 /**
  * supabaseAdmin.ts
- * Admin helpers using service_role key via raw fetch.
- * The supabase-js client in the browser preserves the user's auth session,
- * which means the service_role key gets overridden. Using raw fetch ensures
- * the service_role key is always used in the Authorization header.
+ * Database helpers using the authenticated user's Supabase session (RLS-enforced).
+ *
+ * SECURITY FIX: Removed VITE_SUPABASE_SERVICE_ROLE from client-side code so
+ * administrative credentials are never bundled into browser JavaScript.
  */
 
-const getHeaders = () => {
-    const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE || import.meta.env.VITE_SUPABASE_SERVICE_ROL;
-    
-    if (!supabaseServiceKey) {
-        throw new Error("ALERTA CRÍTICA: No se encontró la llave VITE_SUPABASE_SERVICE_ROLE en las variables de entorno. Supabase está bloqueando la descarga de datos.");
-    }
-
-    return {
-        'apikey': supabaseServiceKey,
-        'Authorization': `Bearer ${supabaseServiceKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-    };
-};
+import { createClient } from '@supabase/supabase-js';
+import { supabase } from './supabaseClient';
 
 /**
- * Fetches all rows from a table using the service_role key (bypasses RLS).
+ * Fetches all rows from a table using the authenticated session with pagination.
+ * Throws an explicit error if any page fails so callers never confuse a partial
+ * or failed read with a complete dataset.
  */
 export async function adminSelect(table: string, select = '*'): Promise<any[]> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const allData: any[] = [];
     let page = 0;
     const pageSize = 1000;
@@ -34,21 +23,21 @@ export async function adminSelect(table: string, select = '*'): Promise<any[]> {
     while (hasMore) {
         const from = page * pageSize;
         const to = from + pageSize - 1;
-        const url = `${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
-        const res = await fetch(url, { 
-            headers: {
-                ...getHeaders(),
-                'Range': `${from}-${to}`
-            },
-            cache: 'no-store'
-        });
-        if (!res.ok) {
-            console.error(`[adminSelect] ${table} error on page ${page}:`, res.status, await res.text());
-            break;
+
+        const { data, error } = await supabase
+            .from(table)
+            .select(select)
+            .range(from, to);
+
+        if (error) {
+            console.error(`[adminSelect] ${table} error on page ${page}:`, error.message);
+            throw new Error(`Error al consultar ${table} (página ${page}): ${error.message}`);
         }
-        const data = await res.json();
-        allData.push(...data);
-        if (data.length < pageSize) {
+
+        const rows = data || [];
+        allData.push(...rows);
+
+        if (rows.length < pageSize) {
             hasMore = false;
         } else {
             page++;
@@ -58,95 +47,103 @@ export async function adminSelect(table: string, select = '*'): Promise<any[]> {
 }
 
 /**
- * Inserts a row into a table using the service_role key (bypasses RLS).
+ * Inserts a row (or rows) into a table using the authenticated session.
  */
-export async function adminInsert(table: string, data: any): Promise<any> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const url = `${supabaseUrl}/rest/v1/${table}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-        const err = await res.text();
-        console.error(`[adminInsert] ${table} error:`, res.status, err);
-        throw new Error(err);
+export async function adminInsert(table: string, payload: any): Promise<any> {
+    const { data, error } = await supabase
+        .from(table)
+        .insert(payload)
+        .select();
+
+    if (error) {
+        console.error(`[adminInsert] ${table} error:`, error.message);
+        throw new Error(error.message);
     }
-    return res.json();
+    return data;
 }
 
 /**
- * Updates a row in a table using the service_role key (bypasses RLS).
+ * Updates a row in a table by id using the authenticated session.
  */
-export async function adminUpdate(table: string, id: string, data: any): Promise<boolean> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`;
-    const res = await fetch(url, {
-        method: 'PATCH',
-        headers: getHeaders(),
-        body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-        console.error(`[adminUpdate] ${table} error:`, res.status, await res.text());
+export async function adminUpdate(table: string, id: string, payload: any): Promise<boolean> {
+    const { error } = await supabase
+        .from(table)
+        .update(payload)
+        .eq('id', id);
+
+    if (error) {
+        console.error(`[adminUpdate] ${table} error:`, error.message);
         return false;
     }
     return true;
 }
 
 /**
- * Creates a user in Supabase Auth using the service_role key.
- * This bypasses email confirmation requirements.
+ * Creates a user in Supabase Auth without exposing the service_role key in the client.
+ * 1. Attempts the secure 'create-user' Edge Function (auto-confirms email on server).
+ * 2. Falls back to an isolated non-persisting anon client signUp so the current
+ *    administrator session is never overwritten.
  */
 export async function adminCreateAuthUser(email: string, password: string): Promise<{ id: string } | null> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const url = `${supabaseUrl}/auth/v1/admin/users`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-            email,
-            password,
-            email_confirm: true, // AUTO-CONFIRM email
-        }),
-    });
+    try {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('create-user', {
+            body: { email, password },
+        });
 
-    if (!res.ok) {
-        const err = await res.text();
-        console.warn(`[adminCreateAuthUser] error or already exists:`, res.status, err);
-        return null;
+        if (!fnError && fnData?.id) {
+            return { id: fnData.id };
+        }
+    } catch {
+        // Edge Function not deployed or unreachable; proceed to isolated signUp fallback
     }
 
-    const data = await res.json();
-    return { id: data.id };
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        const isolatedClient = createClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false,
+            },
+        });
+
+        const { data, error } = await isolatedClient.auth.signUp({
+            email,
+            password,
+        });
+
+        if (error || !data.user) {
+            console.warn(`[adminCreateAuthUser] signUp error or user already exists:`, error?.message);
+            return null;
+        }
+
+        return { id: data.user.id };
+    } catch (err) {
+        console.warn(`[adminCreateAuthUser] unexpected error:`, err);
+        return null;
+    }
 }
 
 /**
- * Upserts a batch of rows in a single HTTP request using service_role key.
- * Bypasses RLS and eliminates N+1 sequential requests.
+ * Upserts a batch of rows in chunks using the authenticated session.
  */
 export async function adminUpsertBatch(table: string, items: any[]): Promise<boolean> {
     if (!items || items.length === 0) return true;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const url = `${supabaseUrl}/rest/v1/${table}`;
-    const headers = {
-        ...getHeaders(),
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
-    };
 
     const CHUNK_SIZE = 100;
     for (let i = 0; i < items.length; i += CHUNK_SIZE) {
         const chunk = items.slice(i, i + CHUNK_SIZE);
-        const res = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(chunk),
-        });
-        if (!res.ok) {
-            console.error(`[adminUpsertBatch] ${table} error on chunk starting at ${i}:`, res.status, await res.text());
+        const { error } = await supabase
+            .from(table)
+            .upsert(chunk, { onConflict: 'id' });
+
+        if (error) {
+            console.error(`[adminUpsertBatch] ${table} error on chunk starting at ${i}:`, error.message);
             return false;
         }
     }
     return true;
 }
+
 

@@ -60,7 +60,7 @@ export function useRealtimeTracking(
 ): { [driverId: string]: DriverPosition } {
 
     const [positions, setPositions] = useState<{ [driverId: string]: DriverPosition }>({});
-    const animMapRef = useRef<Map<string, AnimationEntry & { lastUpdate: number }>>(new Map());
+    const animMapRef = useRef<Map<string, AnimationEntry & { lastUpdate: number; settled?: boolean }>>(new Map());
     const rafRef = useRef<number>(0);
 
     // ── Handle incoming position update (from either source) ──────────────
@@ -89,6 +89,7 @@ export function useRealtimeTracking(
             target: { lat, lng, heading },
             startTime: now,
             lastUpdate: now,
+            settled: false,
         });
     }, []);
 
@@ -115,7 +116,7 @@ export function useRealtimeTracking(
             const now = performance.now();
             const map = animMapRef.current;
             
-            // Purge inactive drivers (5 minutes)
+            // Purge inactive drivers (15 minutes)
             let hasPurged = false;
             map.forEach((entry, driverId) => {
                 if (now - entry.lastUpdate > PURGE_TIMEOUT) {
@@ -130,12 +131,25 @@ export function useRealtimeTracking(
                 return;
             }
 
+            let needsStateUpdate = hasPurged;
             const newPositions: { [driverId: string]: DriverPosition } = {};
             map.forEach((entry, driverId) => {
-                newPositions[driverId] = interpolateEntry(entry, now);
+                const elapsed = now - entry.startTime;
+                if (elapsed < LERP_DURATION) {
+                    needsStateUpdate = true;
+                    newPositions[driverId] = interpolateEntry(entry, now);
+                } else if (!entry.settled) {
+                    entry.settled = true;
+                    needsStateUpdate = true;
+                    newPositions[driverId] = { ...entry.target };
+                } else {
+                    newPositions[driverId] = { ...entry.target };
+                }
             });
 
-            setPositions(newPositions);
+            if (needsStateUpdate) {
+                setPositions(newPositions);
+            }
             rafRef.current = requestAnimationFrame(tick);
         };
 

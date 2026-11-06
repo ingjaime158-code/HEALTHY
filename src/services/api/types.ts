@@ -11,6 +11,7 @@ export interface Business {
     lng: number;
     phone?: string;
     email?: string;
+    contactEmail?: string;
     rfc?: string;
     parentId?: string;
     parentName?: string;
@@ -20,6 +21,19 @@ export interface Business {
     waitRatePerMin?: number;
     locationLink?: string;
     routeType?: 'Matutina' | 'Vespertina';
+    // Structured client profile columns (normalized from businesses.email JSON)
+    planType?: string;
+    plansCount?: number;
+    exclusions?: string;
+    siglas?: string;
+    driver?: string;
+    isActive?: boolean;
+    extraDishes?: number;
+    tiempos?: number;
+    routeOrder?: number;
+    package?: string;
+    plans?: any[];
+    routeConfigs?: Record<string, any>;
 }
 
 

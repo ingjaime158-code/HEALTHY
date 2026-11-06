@@ -36,6 +36,7 @@ export interface BagCalculationBreakdown {
   bagsWedSun: number;      // Ciclo Mié/Jue + Fin de Semana (4 días: Jue, Vie, Sáb, Dom) -> ceil((tiempos * 4) / 6) por persona
   bagsWeekendOnly: number; // Fin de Semana (2 días: Sáb, Dom) -> ceil((tiempos * 2) / 6) por persona
   activeBags: number;      // Bolsas activas según el día de la semana actual
+  activeCycle: 'DOM_LUN_3D' | 'MIE_DOM_4D';
   isSundayOrMonday: boolean;
   totalTiempos: number;
   clientsCount: number;
@@ -154,6 +155,7 @@ export function calculateBagsFromPlans(
     bagsWedSun,
     bagsWeekendOnly,
     activeBags,
+    activeCycle: isSundayOrMonday ? 'DOM_LUN_3D' : 'MIE_DOM_4D',
     isSundayOrMonday,
     totalTiempos,
     clientsCount: subNames.length,

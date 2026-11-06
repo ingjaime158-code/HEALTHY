@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { loginWithGoogle, loginWithMicrosoft, isAuthenticated, validateCurrentSession } from '../services/authService';
+import { isAuthenticated, validateCurrentSession } from '../services/authService';
 import { supabase } from '../services/supabaseClient';
 
 // --- Login Rate Limiting ---
@@ -73,7 +73,7 @@ const Login = () => {
     // Check for errors from redirection (e.g. from LandingPage)
     if (location.state?.errorMessage) {
       setError(location.state.errorMessage);
-      window.history.replaceState({}, document.title)
+      window.history.replaceState({}, document.title);
     }
 
     // Also check URL params directly here in case user lands on /login with error
@@ -83,9 +83,11 @@ const Login = () => {
       setError(decodeURIComponent(urlError));
     }
 
-    // 1. Check if already authenticated on mount
+    // 1. Check if already authenticated with a valid server session on mount
     if (isAuthenticated()) {
-      navigate('/monitor');
+      validateCurrentSession().then(({ allowed }) => {
+        if (allowed) navigate('/monitor');
+      });
     }
 
     // 2. Listen for auth state changes (e.g. after OAuth redirect)
@@ -115,7 +117,8 @@ const Login = () => {
       authListener.subscription.unsubscribe();
     };
   }, [navigate]);
-  const [email, setEmail] = useState('');
+
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -131,7 +134,7 @@ const Login = () => {
     setError('');
     setLoading(true);
 
-    const loginEmail = email;
+    const loginEmail = email.trim();
 
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -140,7 +143,7 @@ const Login = () => {
       });
 
       if (authError) {
-        setError(`Error: ${authError.message === 'Invalid login credentials' ? 'Usuario o contraseña incorrectos.' : authError.message}`);
+        setError(`Error: ${authError.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : authError.message}`);
         recordLoginAttempt();
         return;
       }
@@ -188,36 +191,40 @@ const Login = () => {
 
           <form onSubmit={handleEmailLogin} className="flex flex-col gap-4">
             <div>
-              <label className="block text-blue-200 text-xs font-bold mb-1 ml-1">Usuario</label>
+              <label htmlFor="login-email" className="block text-blue-200 text-xs font-bold mb-1 ml-1">Correo electrónico</label>
               <input
-                type="text"
+                id="login-email"
+                type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Ingresa tu usuario"
+                placeholder="usuario@dominio.com"
                 required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               />
             </div>
             <div>
-              <label className="block text-blue-200 text-xs font-bold mb-1 ml-1">Contraseña</label>
+              <label htmlFor="login-password" className="block text-blue-200 text-xs font-bold mb-1 ml-1">Contraseña</label>
               <input
+                id="login-password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
               />
             </div>
             <button
               type="submit"
-              disabled={loading || isCurrentlyLocked}
-              className={`w-full py-3.5 mt-2 rounded-xl font-bold text-lg shadow-lg transition-all transform flex items-center justify-center gap-3 ${loading || isCurrentlyLocked
+              disabled={loading || validating || isCurrentlyLocked}
+              className={`w-full py-3.5 mt-2 rounded-xl font-bold text-lg shadow-lg transition-all transform flex items-center justify-center gap-3 ${loading || validating || isCurrentlyLocked
                 ? 'bg-blue-600/50 text-white/50 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-500 hover:shadow-xl active:scale-95'
                 }`}
             >
-              {loading ? 'Iniciando sesión...' : 'Entrar'}
+              {loading || validating ? 'Iniciando sesión...' : 'Entrar'}
             </button>
           </form>
 

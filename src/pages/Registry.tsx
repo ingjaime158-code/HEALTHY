@@ -283,7 +283,10 @@ const Registry = () => {
                 const submission = { ...bizForm, phone: fullPhone };
 
                 if (editingId) {
-                    await updateBusiness({ ...submission, id: editingId });
+                    const updated = await updateBusiness({ ...submission, id: editingId });
+                    if (!updated) {
+                        throw new Error('No se pudo actualizar el negocio en la base de datos.');
+                    }
                 } else {
                     await addBusiness(submission);
                 }

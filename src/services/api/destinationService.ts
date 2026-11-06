@@ -1,3 +1,4 @@
+import { supabase } from '../supabaseClient';
 import { adminSelect, adminInsert, adminUpdate } from '../supabaseAdmin';
 import { RouteMap } from './types';
 
@@ -37,16 +38,13 @@ export const updateRouteMap = async (routeMap: RouteMap): Promise<boolean> => {
 
 export const deleteRouteMap = async (id: string): Promise<{ success: boolean, message?: string }> => {
     try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const srvKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE;
-        const res = await fetch(`${supabaseUrl}/rest/v1/destinations?id=eq.${id}`, {
-            method: 'DELETE',
-            headers: {
-                'apikey': srvKey,
-                'Authorization': `Bearer ${srvKey}`,
+        const { error: rpcErr } = await supabase.rpc('delete_destination_cascade', { p_dest_id: id });
+        if (rpcErr) {
+            const { error: directErr } = await supabase.from('destinations').delete().eq('id', id);
+            if (directErr) {
+                throw new Error(directErr.message || directErr.details || 'Error al borrar mapa');
             }
-        });
-        if (!res.ok) throw new Error(await res.text());
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, message: err?.message || 'Error al borrar mapa' };

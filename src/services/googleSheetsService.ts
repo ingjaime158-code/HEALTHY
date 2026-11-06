@@ -1,11 +1,54 @@
 /**
  * Service to push client data to Google Sheets via Webhook (Google Apps Script)
  */
+import { supabase } from './supabaseClient';
 
 const GAS_URLS = {
-    Matutina: 'https://script.google.com/macros/s/AKfycbxPxN0wqRT7Y5z9D8VVOuXmPaN9LP0swpVKB9YqLTXWYj3Mc7Qj2MHNVc9KiGnIJIyQ/exec',
-    Vespertina: 'https://script.google.com/macros/s/AKfycbwlB2MfXAj54g4_78CUzsgtqnaTuFKYuPWYx_fVWHSQeNF5HWElprSg-6wshKcfM6M/exec'
+    Matutina: import.meta.env.VITE_GAS_MATUTINA_URL || 'https://script.google.com/macros/s/AKfycbxPxN0wqRT7Y5z9D8VVOuXmPaN9LP0swpVKB9YqLTXWYj3Mc7Qj2MHNVc9KiGnIJIyQ/exec',
+    Vespertina: import.meta.env.VITE_GAS_VESPERTINA_URL || 'https://script.google.com/macros/s/AKfycbwlB2MfXAj54g4_78CUzsgtqnaTuFKYuPWYx_fVWHSQeNF5HWElprSg-6wshKcfM6M/exec'
 };
+
+const GAS_WEBHOOK_SECRET = import.meta.env.VITE_GAS_WEBHOOK_SECRET || 'hd_wh_9f8a7c6b5d4e3f2a1b0c9d8e7f6a5b4c';
+const USE_SHEETS_EDGE_PROXY = import.meta.env.VITE_USE_SHEETS_EDGE_PROXY === 'true';
+
+async function sendToGoogleAppsScript(routeType: 'Matutina' | 'Vespertina', payload: Record<string, any>): Promise<boolean> {
+    const url = GAS_URLS[routeType];
+    if (!url) {
+        console.error('No GAS URL found for route type:', routeType);
+        return false;
+    }
+
+    const payloadWithAuth = GAS_WEBHOOK_SECRET
+        ? { ...payload, token: GAS_WEBHOOK_SECRET }
+        : payload;
+
+    // 1. Si el proxy en Supabase Edge Functions está habilitado, enviar de forma autenticada desde servidor
+    if (USE_SHEETS_EDGE_PROXY) {
+        try {
+            const { data, error } = await supabase.functions.invoke('sheets-webhook', {
+                body: { routeType, payload: payloadWithAuth }
+            });
+            if (!error && data?.ok) {
+                return true;
+            }
+            console.warn('[GoogleSheetsService] Edge proxy fallback to direct GAS call:', error?.message || data);
+        } catch (proxyErr) {
+            console.warn('[GoogleSheetsService] Edge proxy unavailable, using direct GAS call:', proxyErr);
+        }
+    }
+
+    // 2. Llamada directa a Google Apps Script (con token si VITE_GAS_WEBHOOK_SECRET está definido)
+    await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+            'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify(payloadWithAuth)
+    });
+
+    return true;
+}
 
 const SHEET_CONFIGS = {
     Matutina: {
@@ -162,16 +205,7 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
             'SIGLAS': data.siglas || 'C'
         };
 
-        // We use a simple POST with text/plain to avoid CORS preflight (OPTIONS) requests
-        // that Google Apps Script doesn't handle well.
-        await fetch(url, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: {
-                'Content-Type': 'text/plain'
-            },
-            body: JSON.stringify(enrichedPayload)
-        });
+        await sendToGoogleAppsScript(routeType, enrichedPayload);
 
         return true;
     } catch (error) {
@@ -202,29 +236,33 @@ export const fetchClientsFromGoogleSheet = async (routeType: 'Matutina' | 'Vespe
           .trim();
     };
 
-    // 1. Fetch active clients
+    // 1. Fetch active clients (MANDATORY: must succeed to prevent accidental mass deactivation)
+    console.log(`[GoogleSheetsService] Fetching active clients for ${routeType}...`);
+    const activeUrl = `https://docs.google.com/spreadsheets/d/${config.sheetId}/export?format=csv&gid=${config.activeGid}&tcb=${Date.now()}`;
+    let activeRes: Response;
     try {
-        console.log(`[GoogleSheetsService] Fetching active clients for ${routeType}...`);
-        const url = `https://docs.google.com/spreadsheets/d/${config.sheetId}/export?format=csv&gid=${config.activeGid}&tcb=${Date.now()}`;
-        const res = await fetch(url);
-        if (res.ok) {
-            const csvText = await res.text();
-            const activeClients = parseSheetClientsCsv(csvText, true);
-            
-            activeClients.forEach(c => {
-                const norm = normalizeName(c.name);
-                if (norm) {
-                    parsedNamesSet.add(norm);
-                    allClients.push(c);
-                }
-            });
-            console.log(`[GoogleSheetsService] Parsed ${activeClients.length} active clients.`);
-        } else {
-            console.error(`[GoogleSheetsService] Failed to fetch active clients. Status: ${res.status}`);
-        }
-    } catch (e) {
-        console.error('[GoogleSheetsService] Error fetching active sheet:', e);
+        activeRes = await fetch(activeUrl);
+    } catch (e: any) {
+        console.error('[GoogleSheetsService] Network error fetching active sheet:', e);
+        throw new Error(`No se pudo descargar la pestaña de clientes activos (${routeType}): ${e?.message || 'Error de red'}`);
     }
+
+    if (!activeRes.ok) {
+        console.error(`[GoogleSheetsService] Failed to fetch active clients. Status: ${activeRes.status}`);
+        throw new Error(`Google Sheets rechazó la descarga de la pestaña activa (${routeType}, HTTP ${activeRes.status}). Sincronización abortada por seguridad.`);
+    }
+
+    const activeCsvText = await activeRes.text();
+    const activeClients = parseSheetClientsCsv(activeCsvText, true, true);
+
+    activeClients.forEach(c => {
+        const norm = normalizeName(c.name);
+        if (norm) {
+            parsedNamesSet.add(norm);
+            allClients.push(c);
+        }
+    });
+    console.log(`[GoogleSheetsService] Parsed ${activeClients.length} active clients.`);
 
     // 2. Fetch inactive clients
     for (const inactiveGid of config.inactiveGids) {
@@ -296,9 +334,14 @@ function parseCsvContent(text: string): string[][] {
 }
 
 // Parses sheet rows into structured objects with canonical keys
-function parseSheetClientsCsv(csvText: string, isActive: boolean): RawSheetClient[] {
+function parseSheetClientsCsv(csvText: string, isActive: boolean, strictHeader = false): RawSheetClient[] {
     const parsedRows = parseCsvContent(csvText);
-    if (parsedRows.length < 2) return [];
+    if (parsedRows.length < 2) {
+        if (strictHeader && parsedRows.length === 0) {
+            throw new Error('La pestaña activa de Google Sheets devolvió un documento vacío.');
+        }
+        return [];
+    }
 
     const header = parsedRows[0].map(h => 
         h.toUpperCase()
@@ -322,6 +365,9 @@ function parseSheetClientsCsv(csvText: string, isActive: boolean): RawSheetClien
 
     if (nameIdx === -1) {
         console.warn('[GoogleSheetsService] Name column not found in sheet!');
+        if (strictHeader) {
+            throw new Error('No se encontró la columna NOMBRE o CLIENTE en la pestaña activa de Google Sheets.');
+        }
         return [];
     }
 
@@ -400,20 +446,10 @@ export const distributeRoutesToGoogleSheets = async (
 
     try {
         console.log(`[GoogleSheetsService] Distributing active routes for ${routeType} to drivers sheets...`);
-        
-        await fetch(url, {
-            method: 'POST',
-            mode: 'no-cors', // avoid CORS issues on GAS side
-            headers: {
-                'Content-Type': 'text/plain'
-            },
-            body: JSON.stringify({
-                action: 'distribute_routes',
-                distributions
-            })
+        return await sendToGoogleAppsScript(routeType, {
+            action: 'distribute_routes',
+            distributions
         });
-
-        return true;
     } catch (error) {
         console.error('[GoogleSheetsService] Error distributing routes to Google Sheets:', error);
         return false;

@@ -16,21 +16,26 @@ export interface User {
 export const initializeAuth = async () => {
     // Check session
     const { data } = await supabase.auth.getSession();
-    if (data.session) {
-        const email = data.session.user.email || '';
-        // We silently check permissions to update local role if possible, 
-        // but we DO NOT force sign out here. We let the UI Guards handle access denial.
+    if (data.session?.user?.email) {
+        const email = data.session.user.email;
         const allowed = await checkAllowedUser(email);
 
         if (allowed) {
             localStorage.setItem('hd_current_user', email);
+        } else {
+            await supabase.auth.signOut();
+            clearLocalAuth();
         }
+    } else {
+        clearLocalAuth();
     }
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            // We allow the UI to handle the redirect logic
+            if (!session?.user?.email) {
+                clearLocalAuth();
+            }
         } else if (event === 'SIGNED_OUT') {
             clearLocalAuth();
         }
@@ -38,18 +43,20 @@ export const initializeAuth = async () => {
 };
 
 const clearLocalAuth = () => {
+    _roleCache = null;
     localStorage.removeItem('hd_current_user');
     localStorage.removeItem('hd_user_role');
     localStorage.removeItem('hd_user_business_id');
     localStorage.removeItem('hd_user_name');
     localStorage.removeItem('hd_user_allowed_views');
-}
+};
 
-// New public function to be called by Login.tsx or App.tsx
+// Public function to be called by Login.tsx or App.tsx
 export const validateCurrentSession = async (): Promise<{ allowed: boolean, email?: string }> => {
     const { data } = await supabase.auth.getSession();
     if (!data.session?.user?.email) {
         console.warn('No active session or email found during validation.');
+        clearLocalAuth();
         return { allowed: false };
     }
 
@@ -58,7 +65,6 @@ export const validateCurrentSession = async (): Promise<{ allowed: boolean, emai
     const isAllowed = await checkAllowedUser(email);
 
     if (isAllowed) {
-  
         localStorage.setItem('hd_current_user', email);
         return { allowed: true, email };
     } else {
@@ -75,7 +81,9 @@ const checkAllowedUser = async (email: string): Promise<boolean> => {
     if (data?.role) {
         localStorage.setItem('hd_user_role', data.role);
         if (data.business_id) localStorage.setItem('hd_user_business_id', data.business_id);
+        else localStorage.removeItem('hd_user_business_id');
         if (data.name) localStorage.setItem('hd_user_name', data.name);
+        else localStorage.removeItem('hd_user_name');
         // Fetch allowed_views separately (column may not exist yet)
         try {
             const { data: viewsData } = await supabase.from('allowed_users').select('allowed_views').ilike('email', email).maybeSingle();
@@ -111,10 +119,9 @@ export const addAllowedUser = async (email: string, password: string | undefined
         return false;
     }
 
-    // Use Admin API to create user with auto-confirm enabled
+    // Use Admin API / Edge Function to create user
     if (password) {
         const authData = await adminCreateAuthUser(email, password);
-        // We don't block if adminCreateAuthUser fails (it might be because user already exists in Auth but not in allowed_users)
         if (!authData) {
             console.warn("Auth creation via Admin API skipped or failed (User might already exist in Auth).");
         }
@@ -146,6 +153,7 @@ export const updateAllowedUserRole = async (email: string, newRole: 'Administrad
         console.error("Error updating user role:", error);
         return false;
     }
+    invalidateRoleCache();
     return true;
 };
 
@@ -155,12 +163,14 @@ export const updateAllowedUserName = async (email: string, name: string): Promis
         console.error("Error updating user name:", error);
         return false;
     }
+    invalidateRoleCache();
     return true;
 };
 
 export const removeAllowedUser = async (email: string): Promise<void> => {
     const { error } = await supabase.from('allowed_users').delete().ilike('email', email);
     if (error) console.error("Error removing user from db:", error);
+    invalidateRoleCache();
     console.warn("User removed from list. Actual Auth deletion requires admin rights/Edge Function.");
 };
 
@@ -189,7 +199,7 @@ export const loginWithMicrosoft = async () => {
     });
     if (error) console.error("Microsoft login failed:", error);
     return { data, error };
-}
+};
 
 export const login = async (email: string, password: string): Promise<boolean> => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -237,6 +247,7 @@ export const updateAllowedUserViews = async (email: string, views: string[]): Pr
         console.error('Error updating user views:', error);
         return false;
     }
+    invalidateRoleCache();
     return true;
 };
 
@@ -245,39 +256,71 @@ export const isAuthenticated = (): boolean => {
 };
 
 // --- Server-Side Role Validation ---
-// In-memory cache to avoid repeated DB calls (valid for 5 minutes)
-let _roleCache: { role: string | null; businessId: string | null; name: string | null; timestamp: number } | null = null;
+// In-memory cache keyed by normalized user email (valid for 5 minutes)
+let _roleCache: {
+    email: string;
+    role: 'Administrador' | 'Usuario' | 'Chofer';
+    businessId: string | null;
+    name: string | null;
+    timestamp: number;
+} | null = null;
 const ROLE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export const getServerValidatedRole = async (): Promise<{ role: 'Administrador' | 'Usuario' | 'Chofer' | null; businessId: string | null; name: string | null }> => {
-    // Return cache if fresh
-    if (_roleCache && (Date.now() - _roleCache.timestamp) < ROLE_CACHE_TTL) {
-        return { role: _roleCache.role as any, businessId: _roleCache.businessId, name: _roleCache.name };
+    const { data: sessionData } = await supabase.auth.getSession();
+    const sessionEmail = sessionData.session?.user?.email?.trim();
+
+    if (!sessionEmail) {
+        clearLocalAuth();
+        return { role: null, businessId: null, name: null };
     }
 
-    const email = getCurrentUser();
-    if (!email) return { role: null, businessId: null, name: null };
+    const normalizedEmail = sessionEmail.toLowerCase();
+
+    // Return cache if fresh and belongs to the same authenticated user
+    if (
+        _roleCache &&
+        _roleCache.email === normalizedEmail &&
+        (Date.now() - _roleCache.timestamp) < ROLE_CACHE_TTL
+    ) {
+        return { role: _roleCache.role, businessId: _roleCache.businessId, name: _roleCache.name };
+    }
 
     try {
         const { data } = await supabase
             .from('allowed_users')
             .select('role, business_id, name')
-            .ilike('email', email)
+            .ilike('email', sessionEmail)
             .maybeSingle();
 
         if (data?.role) {
-            _roleCache = { role: data.role, businessId: data.business_id, name: data.name, timestamp: Date.now() };
-            // Also sync localStorage for backward compatibility
+            _roleCache = {
+                email: normalizedEmail,
+                role: data.role as 'Administrador' | 'Usuario' | 'Chofer',
+                businessId: data.business_id,
+                name: data.name,
+                timestamp: Date.now()
+            };
+            // Sync localStorage for backward compatibility
+            localStorage.setItem('hd_current_user', sessionEmail);
             localStorage.setItem('hd_user_role', data.role);
             if (data.business_id) localStorage.setItem('hd_user_business_id', data.business_id);
+            else localStorage.removeItem('hd_user_business_id');
             if (data.name) localStorage.setItem('hd_user_name', data.name);
+            else localStorage.removeItem('hd_user_name');
+
             // Fetch allowed_views separately (column may not exist yet)
             try {
-                const { data: viewsData } = await supabase.from('allowed_users').select('allowed_views').ilike('email', email).maybeSingle();
+                const { data: viewsData } = await supabase.from('allowed_users').select('allowed_views').ilike('email', sessionEmail).maybeSingle();
                 if (viewsData?.allowed_views) localStorage.setItem('hd_user_allowed_views', JSON.stringify(viewsData.allowed_views));
                 else localStorage.removeItem('hd_user_allowed_views');
             } catch { localStorage.removeItem('hd_user_allowed_views'); }
+
             return { role: data.role as any, businessId: data.business_id, name: data.name };
+        } else {
+            // Authenticated in Supabase Auth, but not authorized in allowed_users
+            clearLocalAuth();
+            return { role: null, businessId: null, name: null };
         }
     } catch (e) {
         console.error('Server role validation error:', e);

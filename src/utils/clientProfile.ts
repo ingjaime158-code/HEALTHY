@@ -136,15 +136,41 @@ const DEFAULT_PROFILE: ClientProfileConfig = {
 };
 
 /**
- * Safely parses the JSON string inside a client's email field.
+ * Safely parses the JSON string inside a client's email field or extracts structured columns from a Business record.
  * Returns a fallback default configuration if parsing fails.
  */
-export function parseClientProfile(emailJson: string | null | undefined): ClientProfileConfig {
-  if (!emailJson || !emailJson.trim()) {
+export function parseClientProfile(emailJsonOrBusiness: string | Record<string, any> | null | undefined): ClientProfileConfig {
+  if (!emailJsonOrBusiness) {
     return { ...DEFAULT_PROFILE, plans: [] };
   }
 
-  const cleanJson = emailJson.trim();
+  // Support passing a Business object directly (prioritizes normalized database columns)
+  if (typeof emailJsonOrBusiness === 'object') {
+    const b = emailJsonOrBusiness;
+    const baseFromEmail = typeof b.email === 'string' ? parseClientProfile(b.email) : { ...DEFAULT_PROFILE, plans: [] };
+    const routeConfigs = b.routeConfigs && typeof b.routeConfigs === 'object' ? b.routeConfigs : {};
+    return {
+      ...baseFromEmail,
+      ...(routeConfigs.Matutina ? { Matutina: routeConfigs.Matutina } : {}),
+      ...(routeConfigs.Vespertina ? { Vespertina: routeConfigs.Vespertina } : {}),
+      planType: b.planType ?? b.plan_type ?? baseFromEmail.planType,
+      plansCount: b.plansCount ?? b.plans_count ?? baseFromEmail.plansCount,
+      exclusions: b.exclusions ?? baseFromEmail.exclusions,
+      siglas: b.siglas ?? baseFromEmail.siglas,
+      driver: b.driver ?? baseFromEmail.driver,
+      isActive: b.isActive ?? b.is_active ?? baseFromEmail.isActive,
+      extraDishes: b.extraDishes ?? b.extra_dishes ?? baseFromEmail.extraDishes,
+      tiempos: b.tiempos ?? baseFromEmail.tiempos,
+      routeOrder: b.routeOrder ?? b.route_order ?? baseFromEmail.routeOrder,
+      package: b.package ?? baseFromEmail.package,
+      plans: Array.isArray(b.plans) && b.plans.length > 0 ? b.plans : baseFromEmail.plans
+    };
+  }
+
+  const cleanJson = emailJsonOrBusiness.trim();
+  if (!cleanJson) {
+    return { ...DEFAULT_PROFILE, plans: [] };
+  }
   if (cleanJson.startsWith('{') && cleanJson.endsWith('}')) {
     try {
       const parsed = JSON.parse(cleanJson);
