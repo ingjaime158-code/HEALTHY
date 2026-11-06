@@ -194,7 +194,7 @@ export const ClientLiveTracking: React.FC = () => {
                     </span>
                     <h1 className="text-2xl font-black text-white mb-2">¡Tu pedido ha sido entregado!</h1>
                     <p className="text-emerald-200/90 text-sm mb-4">
-                        Hola <strong className="text-white">{tracking.clientName}</strong>, tu paquete Healthy Dream fue entregado con éxito
+                        Tu paquete Healthy Dream fue entregado con éxito
                         {deliveredTimeStr ? ` a las ${deliveredTimeStr}` : ''}.
                     </p>
 
@@ -244,7 +244,7 @@ export const ClientLiveTracking: React.FC = () => {
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                         </div>
                         <p className="text-[11px] text-gray-400">
-                            {tracking.driverName} • {tracking.clientName}
+                            Repartidor: <span className="text-gray-200 font-semibold">{tracking.driverName}</span>
                         </p>
                     </div>
                 </div>
