@@ -8,6 +8,56 @@ import TrafficLayer from './TrafficLayer';
 
 const DEFAULT_CENTER = { lat: 25.6866, lng: -100.3161 }; // Monterrey/Guadalupe
 
+const HEALTHY_DREAM_WHATSAPP_MSG = `Hola, buen dia🍏
+Somos el equipo de Reparto de Healthy Dream  🚗💨
+
+Comunicamos que su paquete está por llegar.
+
+En caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼
+
+Healthy Dream agradece su preferencia🍓🥦🥩`;
+
+interface ParsedPhone {
+    display: string;
+    waLink: string;
+    telLink: string;
+}
+
+function parseClientPhones(rawPhone?: string): ParsedPhone[] {
+    if (!rawPhone) return [];
+    const parts = rawPhone.split(/[&/,;]+|\s+y\s+/i).map(p => p.trim()).filter(Boolean);
+    const results: ParsedPhone[] = [];
+    const seen = new Set<string>();
+
+    for (const part of parts) {
+        let digits = part.replace(/\D/g, '');
+        if (digits.length < 8) continue;
+        if (digits.length === 10) {
+            digits = `52${digits}`;
+        }
+        if (seen.has(digits)) continue;
+        seen.add(digits);
+
+        const waLink = `https://wa.me/${digits}?text=${encodeURIComponent(HEALTHY_DREAM_WHATSAPP_MSG)}`;
+        const telLink = `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`;
+        results.push({ display: part, waLink, telLink });
+    }
+
+    if (results.length === 0) {
+        let digits = rawPhone.replace(/\D/g, '');
+        if (digits.length === 10) digits = `52${digits}`;
+        if (digits.length >= 8) {
+            results.push({
+                display: rawPhone,
+                waLink: `https://wa.me/${digits}?text=${encodeURIComponent(HEALTHY_DREAM_WHATSAPP_MSG)}`,
+                telLink: `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`
+            });
+        }
+    }
+
+    return results;
+}
+
 export interface MapContentProps {
     activeTrips: Trip[];
     driverPositions: { [key: string]: { lat: number, lng: number, heading: number } };
@@ -518,24 +568,36 @@ const MapContent = ({
                                 </p>
                             )}
 
-                            {activeSelectedClient.phone && (
-                                <div className="flex items-center gap-2 mb-2.5">
-                                    <a 
-                                        href={`https://wa.me/52${activeSelectedClient.phone.replace(/\D/g, '')}`} 
-                                        target="_blank" 
-                                        rel="noreferrer"
-                                        className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 transition-colors"
-                                    >
-                                        <span>WhatsApp</span>
-                                    </a>
-                                    <a 
-                                        href={`tel:${activeSelectedClient.phone}`}
-                                        className="text-[11px] font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-2.5 py-1 rounded border border-blue-200 transition-colors"
-                                    >
-                                        <span>Llamar</span>
-                                    </a>
-                                </div>
-                            )}
+                            {(() => {
+                                const phones = parseClientPhones(activeSelectedClient.phone);
+                                if (phones.length === 0) return null;
+                                return (
+                                    <div className="flex flex-col gap-1.5 mb-2.5">
+                                        {phones.map((p, idx) => (
+                                            <div key={idx} className="flex items-center gap-1.5 flex-wrap">
+                                                <a 
+                                                    href={p.waLink} 
+                                                    target="_blank" 
+                                                    rel="noreferrer"
+                                                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded border border-emerald-200 transition-colors shadow-sm"
+                                                    title={`Enviar WhatsApp a ${p.display}`}
+                                                >
+                                                    <span className="material-symbols-outlined text-[13px] text-emerald-600">chat</span>
+                                                    <span>WhatsApp{phones.length > 1 ? ` #${idx + 1}` : ''}</span>
+                                                </a>
+                                                <a 
+                                                    href={p.telLink}
+                                                    className="text-[11px] font-bold text-blue-700 hover:text-blue-800 flex items-center gap-1 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded border border-blue-200 transition-colors shadow-sm"
+                                                    title={`Llamar a ${p.display}`}
+                                                >
+                                                    <span className="material-symbols-outlined text-[13px] text-blue-600">call</span>
+                                                    <span>Llamar{phones.length > 1 ? ` #${idx + 1}` : ''}</span>
+                                                </a>
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })()}
 
                             <div className="pt-2 border-t border-gray-100 flex gap-2">
                                 <a 

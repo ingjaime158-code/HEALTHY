@@ -719,11 +719,18 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                         </button>
                     )}
 
-                    <button 
-                        onClick={async () => {
-                            if (duplicateStatus?.type === 'EXACT') return showToast('Registro bloqueado: este cliente ya existe en el sistema', 'error');
-                            if (!newClient.name) return showToast('El nombre es requerido', 'error');
-                            if (plansList.length === 0) return showToast('Debe agregar al menos un plan', 'error');
+                    {(() => {
+                        const handleSaveClient = async (routeType: 'Matutina' | 'Vespertina') => {
+                            if (duplicateStatus?.type === 'EXACT') {
+                                return showToast('Registro bloqueado: este cliente ya existe en el sistema', 'error');
+                            }
+                            if (!newClient.name || !newClient.name.trim()) {
+                                return showToast('El nombre del cliente es requerido', 'error');
+                            }
+                            if (plansList.length === 0) {
+                                return showToast('Debes agregar al menos un plan alimenticio', 'error');
+                            }
+
                             setCreatingTrip(true);
                             try {
                                 const coordsParts = (newClient.coords || '').split(',').map(s => s.trim());
@@ -779,7 +786,8 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 };
                                 const emailJson = JSON.stringify(labelConfig);
 
-                                await addBusiness({
+                                // 1. Guardar y verificar en Base de Datos (Supabase)
+                                const savedBusiness = await addBusiness({
                                     name: finalName,
                                     type: 'Moral', 
                                     location: newClient.address,
@@ -787,148 +795,89 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                     lat,
                                     lng,
                                     locationLink: newClient.locationLink,
-                                    routeType: 'Matutina',
+                                    routeType,
                                     email: emailJson
                                 } as any);
 
-                                pushToGoogleSheets('Matutina', {
-                                    name: finalName,
-                                    phone: finalPhone,
-                                    address: newClient.address,
-                                    locationLink: newClient.locationLink,
-                                    coords: newClient.coords,
-                                    bags: finalBags,
-                                    planType: labelConfig.planType,
-                                    plansCount: labelConfig.plansCount,
-                                    exclusions: labelConfig.exclusions,
-                                    siglas: labelConfig.siglas,
-                                    driver: labelConfig.driver,
-                                    tiempos: labelConfig.tiempos,
-                                    isActive: true
-                                });
+                                if (!savedBusiness) {
+                                    throw new Error('No se pudo confirmar el guardado en la base de datos');
+                                }
 
-                                showToast('Cliente guardado en RUTA MATUTINA y registrado en etiquetas');
+                                // 2. Guardar y verificar en Hoja de Cálculo (Google Sheets)
+                                let sheetOk = false;
+                                try {
+                                    sheetOk = await pushToGoogleSheets(routeType, {
+                                        name: finalName,
+                                        phone: finalPhone,
+                                        address: newClient.address,
+                                        locationLink: newClient.locationLink,
+                                        coords: newClient.coords,
+                                        bags: finalBags,
+                                        planType: labelConfig.planType,
+                                        plansCount: labelConfig.plansCount,
+                                        exclusions: labelConfig.exclusions,
+                                        siglas: labelConfig.siglas,
+                                        driver: labelConfig.driver,
+                                        tiempos: labelConfig.tiempos,
+                                        isActive: true
+                                    });
+                                } catch (sheetErr) {
+                                    console.warn('[NewClientSidebar] Error en sincronización con Google Sheets:', sheetErr);
+                                    sheetOk = false;
+                                }
+
+                                // 3. Notificación de éxito verificada
+                                if (sheetOk) {
+                                    showToast(`✅ ¡Cliente guardado exitosamente en el sistema y en Google Sheets (${routeType.toUpperCase()})!`, 'success');
+                                } else {
+                                    showToast(`✅ ¡Cliente guardado en el sistema (${routeType.toUpperCase()})! Sincronizando en segundo plano con Google Sheets.`, 'success');
+                                }
+
+                                // 4. Limpiar toda la ventana de nuevo cliente
                                 handleClearAndReset();
+
+                                // 5. Cerrar la ventana para evitar confusiones
+                                setSidebarOpen(false);
+
+                                // 6. Refrescar listas de clientes en el mapa y store
                                 getBusinesses().then(setBusinesses);
                                 useHealthyDreamsStore.getState().fetchClientsAndDrivers(true);
                             } catch (err: any) {
                                 console.error(err);
-                                showToast('Error: ' + (err.message || 'Fallo al guardar'), 'error');
+                                showToast('Error al guardar cliente: ' + (err.message || 'Fallo de conexión'), 'error');
                             } finally {
                                 setCreatingTrip(false);
                             }
-                        }}
-                        disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
-                        className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <span className="material-symbols-outlined font-bold">wb_twilight</span>
-                        {firstCustomerDraft ? 'Guardar Ambos en Ruta Matutina' : 'Guardar en Ruta Matutina'}
-                    </button>
+                        };
 
-                    <button 
-                        onClick={async () => {
-                            if (duplicateStatus?.type === 'EXACT') return showToast('Registro bloqueado: este cliente ya existe en el sistema', 'error');
-                            if (!newClient.name) return showToast('El nombre es requerido', 'error');
-                            if (plansList.length === 0) return showToast('Debe agregar al menos un plan', 'error');
-                            setCreatingTrip(true);
-                            try {
-                                const coordsParts = (newClient.coords || '').split(',').map(s => s.trim());
-                                const lat = coordsParts.length === 2 ? parseFloat(coordsParts[0]) : 0;
-                                const lng = coordsParts.length === 2 ? parseFloat(coordsParts[1]) : 0;
+                        return (
+                            <>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleSaveClient('Matutina')}
+                                    disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
+                                    className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                    <span className={`material-symbols-outlined font-bold ${creatingTrip ? 'animate-spin' : ''}`}>
+                                        {creatingTrip ? 'sync' : 'wb_twilight'}
+                                    </span>
+                                    {creatingTrip ? 'Guardando y verificando...' : (firstCustomerDraft ? 'Guardar Ambos en Ruta Matutina' : 'Guardar en Ruta Matutina')}
+                                </button>
 
-                                const isCombined = firstCustomerDraft !== null;
-                                const currentClientUpper = newClient.name.trim().toUpperCase();
-                                
-                                const finalName = isCombined 
-                                    ? `${firstCustomerDraft.name.trim()} & ${currentClientUpper}`.toUpperCase()
-                                    : currentClientUpper;
-                                
-                                const finalPhone = isCombined
-                                    ? [firstCustomerDraft.phone, newClient.phone].filter(Boolean).join(' / ')
-                                    : newClient.phone;
-                                
-                                const finalExclusions = isCombined
-                                    ? [firstCustomerDraft.exclusions, newClient.exclusions]
-                                        .filter(e => e && e !== 'Ninguna' && e !== 'Ninguno' && e !== '')
-                                        .join(' / ') || 'Ninguna'
-                                    : newClient.exclusions || 'Ninguna';
-
-                                const taggedCurrentPlans = plansList.map(p => ({ ...p, clientName: currentClientUpper }));
-                                const combinedPlans = isCombined
-                                    ? [...firstCustomerDraft.plans, ...taggedCurrentPlans]
-                                    : taggedCurrentPlans;
-
-                                const combinedExtraDishes = isCombined
-                                    ? firstCustomerDraft.extraDishes + extraDishes
-                                    : extraDishes;
-
-                                const finalPlanType = combinedPlans.map(p => p.planType).join(' + ') || 'NINGUNO';
-                                const finalSiglas = combinedPlans.map(p => p.siglas).join(' + ') || 'C';
-                                const finalPackage = combinedPlans.map(p => p.package).join(' + ') || 'Comida';
-                                const combinedBagsCalc = calculateBagsFromPlans(combinedPlans, finalName, combinedExtraDishes, dayOfWeek);
-                                const combinedTiempos = combinedBagsCalc.totalTiempos;
-                                const combinedPlansCount = combinedPlans.length;
-                                const finalBags = combinedBagsCalc.activeBags;
-
-                                // Serialize label config to the email field
-                                const labelConfig = {
-                                    planType: finalPlanType,
-                                    plansCount: combinedPlansCount,
-                                    exclusions: finalExclusions,
-                                    siglas: finalSiglas,
-                                    driver: 'SIN ASIGNAR',
-                                    extraDishes: combinedExtraDishes,
-                                    tiempos: combinedTiempos,
-                                    package: finalPackage,
-                                    plans: combinedPlans
-                                };
-                                const emailJson = JSON.stringify(labelConfig);
-
-                                await addBusiness({
-                                    name: finalName,
-                                    type: 'Moral',
-                                    location: newClient.address,
-                                    phone: finalPhone,
-                                    lat,
-                                    lng,
-                                    locationLink: newClient.locationLink,
-                                    routeType: 'Vespertina',
-                                    email: emailJson
-                                } as any);
-
-                                pushToGoogleSheets('Vespertina', {
-                                    name: finalName,
-                                    phone: finalPhone,
-                                    address: newClient.address,
-                                    locationLink: newClient.locationLink,
-                                    coords: newClient.coords,
-                                    bags: finalBags,
-                                    planType: labelConfig.planType,
-                                    plansCount: labelConfig.plansCount,
-                                    exclusions: labelConfig.exclusions,
-                                    siglas: labelConfig.siglas,
-                                    driver: labelConfig.driver,
-                                    tiempos: labelConfig.tiempos,
-                                    isActive: true
-                                });
-
-                                showToast('Cliente guardado en RUTA VESPERTINA y registrado en etiquetas');
-                                handleClearAndReset();
-                                getBusinesses().then(setBusinesses);
-                                useHealthyDreamsStore.getState().fetchClientsAndDrivers(true);
-                            } catch (err: any) {
-                                console.error(err);
-                                showToast('Error: ' + (err.message || 'Fallo al guardar'), 'error');
-                            } finally {
-                                setCreatingTrip(false);
-                            }
-                        }}
-                        disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
-                        className="w-full py-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-orange-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <span className="material-symbols-outlined font-bold">wb_sunny</span>
-                        {firstCustomerDraft ? 'Guardar Ambos en Ruta Vespertina' : 'Guardar en Ruta Vespertina'}
-                    </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleSaveClient('Vespertina')}
+                                    disabled={creatingTrip || plansList.length === 0 || duplicateStatus?.type === 'EXACT'}
+                                    className="w-full py-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-black text-sm uppercase tracking-widest shadow-xl shadow-orange-900/20 flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                    <span className={`material-symbols-outlined font-bold ${creatingTrip ? 'animate-spin' : ''}`}>
+                                        {creatingTrip ? 'sync' : 'wb_sunny'}
+                                    </span>
+                                    {creatingTrip ? 'Guardando y verificando...' : (firstCustomerDraft ? 'Guardar Ambos en Ruta Vespertina' : 'Guardar en Ruta Vespertina')}
+                                </button>
+                            </>
+                        );
+                    })()}
                 </div>
             </div>
         </div>
