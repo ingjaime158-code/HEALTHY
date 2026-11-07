@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Map, AdvancedMarker } from '@vis.gl/react-google-maps';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { supabase } from '../services/supabaseClient';
 
-const DEFAULT_CENTER = { lat: 25.6866, lng: -100.3161 }; // Monterrey
+const DEFAULT_CENTER: [number, number] = [25.6866, -100.3161]; // Monterrey
 
 interface TrackingState {
     isDelivered: boolean;
@@ -27,7 +28,10 @@ export const ClientLiveTracking: React.FC = () => {
     const [tracking, setTracking] = useState<TrackingState | null>(null);
     const [loading, setLoading] = useState(true);
     const [lastUpdatedSecs, setLastUpdatedSecs] = useState<number>(0);
-    const [connActive, setConnActive] = useState<boolean>(true);
+
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapInstanceRef = useRef<L.Map | null>(null);
+    const markerRef = useRef<L.Marker | null>(null);
 
     // Fetch tracking status from Supabase
     const fetchTracking = useCallback(async () => {
@@ -115,7 +119,7 @@ export const ClientLiveTracking: React.FC = () => {
 
         if (!driverId) return;
 
-        // Suscribirse a ubicación en tiempo real vía Broadcast y cambios en BD
+        // Suscribirse a ubicación en tiempo real vía Broadcast
         const channel = supabase.channel(`gps:${driverId}`);
         channel
             .on('broadcast', { event: 'location' }, (payload: any) => {
@@ -152,6 +156,69 @@ export const ClientLiveTracking: React.FC = () => {
             clearInterval(secInterval);
         };
     }, [driverId, fetchTracking]);
+
+    // Inicializar y actualizar Leaflet Map
+    useEffect(() => {
+        if (!tracking || tracking.isDelivered || !tracking.lat || !tracking.lng) {
+            return;
+        }
+
+        const coords: [number, number] = [tracking.lat, tracking.lng];
+
+        if (!mapInstanceRef.current && mapContainerRef.current) {
+            // Inicializar mapa
+            const map = L.map(mapContainerRef.current, {
+                center: coords,
+                zoom: 16,
+                zoomControl: false,
+            });
+
+            // Capa de mosaicos moderna, libre y rápida (CartoDB Voyager)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+                maxZoom: 19,
+                subdomains: 'abcd',
+            }).addTo(map);
+
+            // Control de zoom en esquina inferior derecha
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // Icono personalizado para el repartidor con animación
+            const customIcon = L.divIcon({
+                className: 'custom-driver-pin',
+                html: `
+                    <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%, -100%);pointer-events:none;">
+                        <div style="background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid #10b981;color:#ffffff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);margin-bottom:4px;display:flex;align-items:center;gap:4px;">
+                            <span>🛵</span><span>${tracking.driverName}</span>
+                        </div>
+                        <div style="width:44px;height:44px;background:#10b981;border:3px solid #ffffff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(16,185,129,0.55);font-size:22px;animation:pulse 2s infinite;">
+                            🍏
+                        </div>
+                    </div>
+                `,
+                iconSize: [0, 0],
+                iconAnchor: [0, 0],
+            });
+
+            const marker = L.marker(coords, { icon: customIcon }).addTo(map);
+            markerRef.current = marker;
+            mapInstanceRef.current = map;
+        } else if (mapInstanceRef.current && markerRef.current) {
+            // Actualizar posición del marcador suavemente
+            markerRef.current.setLatLng(coords);
+            mapInstanceRef.current.panTo(coords, { animate: true, duration: 1 });
+        }
+    }, [tracking?.lat, tracking?.lng, tracking?.driverName, tracking?.isDelivered]);
+
+    // Limpieza del mapa al desmontar
+    useEffect(() => {
+        return () => {
+            if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
+            }
+        };
+    }, []);
 
     if (loading) {
         return (
@@ -225,15 +292,11 @@ export const ClientLiveTracking: React.FC = () => {
         );
     }
 
-    // ─── PANTALLA: REPARTIDOR EN CAMINO (Mapa en Vivo) ──────────────────────────
-    const mapCenter = tracking.lat && tracking.lng
-        ? { lat: tracking.lat, lng: tracking.lng }
-        : DEFAULT_CENTER;
-
+    // ─── PANTALLA: REPARTIDOR EN CAMINO (Mapa en Vivo OpenStreetMap) ─────────────
     return (
-        <div className="relative min-h-screen w-full bg-[#0A0F1D] flex flex-col text-white overflow-hidden">
+        <div className="relative h-screen w-screen bg-[#0A0F1D] flex flex-col text-white overflow-hidden">
             {/* Header Flotante */}
-            <header className="absolute top-4 left-4 right-4 z-20 bg-[#0F172A]/90 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-xl flex items-center justify-between">
+            <header className="absolute top-4 left-4 right-4 z-[1000] bg-[#0F172A]/90 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-xl flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-2xl">
                         🛵
@@ -259,32 +322,12 @@ export const ClientLiveTracking: React.FC = () => {
                 </div>
             </header>
 
-            {/* Mapa Interactivo */}
-            <div className="flex-1 w-full h-full min-h-[500px]">
+            {/* Contenedor del Mapa OpenStreetMap (Leaflet) a pantalla completa */}
+            <div className="absolute inset-0 w-full h-full z-0">
                 {tracking.lat && tracking.lng ? (
-                    <Map
-                        defaultCenter={mapCenter}
-                        center={mapCenter}
-                        defaultZoom={16}
-                        zoom={16}
-                        gestureHandling="greedy"
-                        disableDefaultUI={false}
-                        className="w-full h-full"
-                    >
-                        {/* Marcador del Repartidor */}
-                        <AdvancedMarker position={mapCenter} title={tracking.driverName}>
-                            <div className="relative flex flex-col items-center">
-                                <div className="px-2.5 py-1 bg-black/80 backdrop-blur-md text-white text-[10px] font-bold rounded-full border border-emerald-500 shadow-lg whitespace-nowrap mb-1">
-                                    🛵 {tracking.driverName}
-                                </div>
-                                <div className="w-10 h-10 rounded-full bg-emerald-500 border-2 border-white shadow-xl flex items-center justify-center text-lg animate-bounce">
-                                    🍏
-                                </div>
-                            </div>
-                        </AdvancedMarker>
-                    </Map>
+                    <div ref={mapContainerRef} className="w-full h-full" style={{ width: '100%', height: '100%' }} />
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-gray-400">
+                    <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-gray-400 bg-[#0A0F1D]">
                         <span className="text-4xl mb-2">📡</span>
                         <p className="text-sm font-semibold text-white">Esperando señal GPS del repartidor...</p>
                         <p className="text-xs text-gray-500 mt-1 max-w-xs">
@@ -294,19 +337,43 @@ export const ClientLiveTracking: React.FC = () => {
                 )}
             </div>
 
-            {/* Tarjeta Inferior de Información */}
-            <footer className="p-4 bg-[#0F172A] border-t border-white/10 z-20">
-                <div className="max-w-md mx-auto flex items-center justify-between">
+            {/* Footer Flotante con Botones Directos */}
+            <footer className="absolute bottom-4 left-4 right-4 z-[1000] bg-[#0F172A]/95 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-2xl">
+                <div className="max-w-md mx-auto flex items-center justify-between gap-3">
                     <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Healthy Dream Reparto</p>
-                        <p className="text-xs text-gray-200 font-medium">Mantén esta pantalla abierta para ver el avance</p>
+                        <p className="text-xs text-gray-200 font-medium">Ubicación en tiempo real</p>
                     </div>
-                    <button
-                        onClick={() => fetchTracking()}
-                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-xs font-bold rounded-lg border border-white/10 flex items-center gap-1.5"
-                    >
-                        <span>🔄</span> Actualizar
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {tracking.lat && tracking.lng && (
+                            <>
+                                <a
+                                    href={`https://www.google.com/maps?q=${tracking.lat},${tracking.lng}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                                >
+                                    <span>🗺️</span> Maps
+                                </a>
+                                <a
+                                    href={`https://www.waze.com/ul?ll=${tracking.lat},${tracking.lng}&navigate=yes`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1"
+                                    title="Abrir en Waze"
+                                >
+                                    <span>🚗</span> Waze
+                                </a>
+                            </>
+                        )}
+                        <button
+                            onClick={() => fetchTracking()}
+                            className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-xs font-bold rounded-xl border border-white/10"
+                            title="Refrescar ubicación"
+                        >
+                            🔄
+                        </button>
+                    </div>
                 </div>
             </footer>
         </div>
