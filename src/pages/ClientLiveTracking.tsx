@@ -6,7 +6,7 @@ import { supabase } from '../services/supabaseClient';
 
 const DEFAULT_CENTER: [number, number] = [25.6866, -100.3161]; // Monterrey
 
-// Haversine formula to calculate distance between two coordinates in kilometers
+// Haversine fallback to calculate distance between two coordinates in kilometers
 function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Earth's radius in km
     const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -28,6 +28,11 @@ interface TrackingState {
     lng: number | null;
     heading: number;
     lastUpdated: string | null;
+}
+
+interface OSRMRouteInfo {
+    distanceMeters: number;
+    durationSeconds: number;
 }
 
 export const ClientLiveTracking: React.FC = () => {
@@ -52,11 +57,16 @@ export const ClientLiveTracking: React.FC = () => {
     const [tracking, setTracking] = useState<TrackingState | null>(null);
     const [loading, setLoading] = useState(true);
     const [lastUpdatedSecs, setLastUpdatedSecs] = useState<number>(0);
+    const [osrmInfo, setOsrmInfo] = useState<OSRMRouteInfo | null>(null);
 
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
     const driverMarkerRef = useRef<L.Marker | null>(null);
     const destMarkerRef = useRef<L.Marker | null>(null);
+    const routeOutlineLayerRef = useRef<L.Polyline | null>(null);
+    const routeMainLayerRef = useRef<L.Polyline | null>(null);
+    const routeDashedLayerRef = useRef<L.Polyline | null>(null);
+    const hasInitialFittedRef = useRef(false);
 
     // Fetch tracking status from Supabase
     const fetchTracking = useCallback(async () => {
@@ -182,6 +192,92 @@ export const ClientLiveTracking: React.FC = () => {
         };
     }, [driverId, fetchTracking]);
 
+    // Consultar y dibujar la ruta vial estilo Uber/Rappi (OSRM Turn-by-Turn)
+    const updateRouteGeometry = useCallback(async (driverCoords: [number, number], destinationCoords: [number, number], mapParam?: L.Map) => {
+        const map = mapParam || mapInstanceRef.current;
+        if (!map) return;
+
+        try {
+            const url = `https://router.project-osrm.org/route/v1/driving/${driverCoords[1]},${driverCoords[0]};${destinationCoords[1]},${destinationCoords[0]}?overview=full&geometries=geojson`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('OSRM status: ' + res.status);
+            const data = await res.json();
+
+            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                const route = data.routes[0];
+                const latLngs: [number, number][] = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
+
+                setOsrmInfo({
+                    distanceMeters: route.distance,
+                    durationSeconds: route.duration,
+                });
+
+                // Si ya existen las capas de ruta, actualizarlas
+                if (routeOutlineLayerRef.current && routeMainLayerRef.current && routeDashedLayerRef.current) {
+                    routeOutlineLayerRef.current.setLatLngs(latLngs);
+                    routeMainLayerRef.current.setLatLngs(latLngs);
+                    routeDashedLayerRef.current.setLatLngs(latLngs);
+                } else {
+                    // 1. Capa de sombra / resplandor exterior
+                    const outline = L.polyline(latLngs, {
+                        color: '#064e3b',
+                        weight: 8,
+                        opacity: 0.6,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                    }).addTo(map);
+
+                    // 2. Línea principal verde esmeralda (estilo Uber/Rappi)
+                    const mainLine = L.polyline(latLngs, {
+                        color: '#10b981',
+                        weight: 5,
+                        opacity: 0.95,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                    }).addTo(map);
+
+                    // 3. Línea interior discontinua que resalta la dirección
+                    const dashed = L.polyline(latLngs, {
+                        color: '#ffffff',
+                        weight: 2,
+                        dashArray: '6, 12',
+                        opacity: 0.85,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                    }).addTo(map);
+
+                    routeOutlineLayerRef.current = outline;
+                    routeMainLayerRef.current = mainLine;
+                    routeDashedLayerRef.current = dashed;
+                }
+
+                // Ajustar zoom inicial para abarcar ambos puntos cómodamente
+                if (!hasInitialFittedRef.current) {
+                    const bounds = L.latLngBounds(latLngs);
+                    map.fitBounds(bounds, { padding: [100, 80], maxZoom: 16 });
+                    hasInitialFittedRef.current = true;
+                }
+                return;
+            }
+        } catch (err) {
+            console.warn('[ClientLiveTracking] Error cargando ruta OSRM:', err);
+        }
+
+        // Fallback: Línea recta directa si OSRM no responde
+        const straightLine: [number, number][] = [driverCoords, destinationCoords];
+        if (routeMainLayerRef.current) {
+            routeMainLayerRef.current.setLatLngs(straightLine);
+        } else {
+            const mainLine = L.polyline(straightLine, {
+                color: '#10b981',
+                weight: 4,
+                dashArray: '8, 8',
+                opacity: 0.9,
+            }).addTo(map);
+            routeMainLayerRef.current = mainLine;
+        }
+    }, []);
+
     // Calcular ETA y distancia
     const etaInfo = useMemo(() => {
         if (!tracking?.lat || !tracking?.lng) {
@@ -194,8 +290,31 @@ export const ClientLiveTracking: React.FC = () => {
         }
 
         if (destCoords) {
+            // Usar cálculo preciso de ruta OSRM si está disponible
+            if (osrmInfo) {
+                const distKm = osrmInfo.distanceMeters / 1000;
+                const minutes = Math.max(1, Math.round(osrmInfo.durationSeconds / 60));
+
+                if (distKm <= 0.35 || minutes <= 2) {
+                    return {
+                        title: '¡El repartidor está llegando!',
+                        timeText: 'Menos de 2 min',
+                        subtitle: 'Tu repartidor está a unos metros de tu domicilio',
+                        isNear: true
+                    };
+                }
+
+                const distDisplay = distKm < 1 ? `${Math.round(osrmInfo.distanceMeters)} metros` : `${distKm.toFixed(1)} km`;
+                return {
+                    title: 'Tiempo estimado de llegada',
+                    timeText: `~${minutes} minutos`,
+                    subtitle: `Aproximadamente a ${distDisplay} de tu domicilio`,
+                    isNear: false
+                };
+            }
+
+            // Fallback geométrico (Haversine)
             const distKm = getDistanceFromLatLonInKm(tracking.lat, tracking.lng, destCoords[0], destCoords[1]);
-            
             if (distKm <= 0.35) {
                 return {
                     title: '¡El repartidor está llegando!',
@@ -205,8 +324,7 @@ export const ClientLiveTracking: React.FC = () => {
                 };
             }
 
-            // Velocidad urbana promedio en tráfico: 26 km/h + 2 min margen de estacionamiento
-            const minutes = Math.max(3, Math.round((distKm / 26) * 60) + 2);
+            const minutes = Math.max(2, Math.round((distKm / 26) * 60) + 1);
             const distDisplay = distKm < 1 ? `${Math.round(distKm * 1000)} metros` : `${distKm.toFixed(1)} km`;
 
             return {
@@ -224,7 +342,7 @@ export const ClientLiveTracking: React.FC = () => {
             subtitle: 'Tu repartidor está en ruta activa hacia tu entrega',
             isNear: false
         };
-    }, [tracking?.lat, tracking?.lng, destCoords]);
+    }, [tracking?.lat, tracking?.lng, destCoords, osrmInfo]);
 
     // Inicializar y actualizar Leaflet Map con OpenStreetMap 100% libre de claves
     useEffect(() => {
@@ -252,7 +370,7 @@ export const ClientLiveTracking: React.FC = () => {
             // Control de zoom discreto en la parte superior derecha
             L.control.zoom({ position: 'topright' }).addTo(map);
 
-            // Icono del repartidor: AUTO 🚗 con etiqueta de nombre
+            // 1. Icono del repartidor: AUTO 🚗 con etiqueta de nombre
             const carIcon = L.divIcon({
                 className: 'custom-driver-pin',
                 html: `
@@ -272,17 +390,17 @@ export const ClientLiveTracking: React.FC = () => {
             const marker = L.marker(driverCoords, { icon: carIcon }).addTo(map);
             driverMarkerRef.current = marker;
 
-            // Si hay destino del cliente, agregar marcador de entrega 📍
+            // 2. Icono del cliente: CASA 🏡 (Estilo Rappi / DiDi / Uber)
             if (destCoords) {
-                const destIcon = L.divIcon({
+                const houseIcon = L.divIcon({
                     className: 'custom-dest-pin',
                     html: `
                         <div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%, -100%);pointer-events:none;">
-                            <div style="background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1px solid #ef4444;color:#ffffff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:16px;white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,0.3);margin-bottom:3px;">
-                                📍 Tu Entrega
+                            <div style="background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);border:1.5px solid #3b82f6;color:#ffffff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.5);margin-bottom:4px;display:flex;align-items:center;gap:4px;">
+                                <span>🏡</span><span>Tu Domicilio</span>
                             </div>
-                            <div style="width:36px;height:36px;background:#ef4444;border:2.5px solid #ffffff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(239,68,68,0.5);font-size:18px;">
-                                🏡
+                            <div style="width:44px;height:44px;background:#3b82f6;border:3px solid #ffffff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(59,130,246,0.6);font-size:22px;">
+                                🏠
                             </div>
                         </div>
                     `,
@@ -290,23 +408,27 @@ export const ClientLiveTracking: React.FC = () => {
                     iconAnchor: [0, 0],
                 });
 
-                const dMarker = L.marker(destCoords, { icon: destIcon }).addTo(map);
+                const dMarker = L.marker(destCoords, { icon: houseIcon }).addTo(map);
                 destMarkerRef.current = dMarker;
 
-                // Ajustar zoom para que quepan ambos puntos
-                const bounds = L.latLngBounds([driverCoords, destCoords]);
-                map.fitBounds(bounds, { padding: [80, 80], maxZoom: 16 });
+                mapInstanceRef.current = map;
+                // Trazar la ruta vial turn-by-turn estilo Rappi/Uber
+                updateRouteGeometry(driverCoords, destCoords, map);
             }
 
             mapInstanceRef.current = map;
         } else if (mapInstanceRef.current && driverMarkerRef.current) {
             // Actualizar posición del auto suavemente
             driverMarkerRef.current.setLatLng(driverCoords);
-            if (!destCoords) {
+
+            // Si hay destino, actualizar la ruta vial
+            if (destCoords) {
+                updateRouteGeometry(driverCoords, destCoords);
+            } else {
                 mapInstanceRef.current.panTo(driverCoords, { animate: true, duration: 1 });
             }
         }
-    }, [tracking?.lat, tracking?.lng, tracking?.driverName, tracking?.isDelivered, destCoords]);
+    }, [tracking?.lat, tracking?.lng, tracking?.driverName, tracking?.isDelivered, destCoords, updateRouteGeometry]);
 
     // Limpieza al desmontar
     useEffect(() => {
@@ -390,7 +512,7 @@ export const ClientLiveTracking: React.FC = () => {
         );
     }
 
-    // ─── PANTALLA: REPARTIDOR EN CAMINO (Mapa Oficial OpenStreetMap) ────────────
+    // ─── PANTALLA: REPARTIDOR EN CAMINO (Mapa Oficial OpenStreetMap con Ruta OSRM) ────
     return (
         <div className="relative h-screen w-screen bg-[#0A0F1D] flex flex-col text-white overflow-hidden">
             {/* Header Flotante */}
