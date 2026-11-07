@@ -64,7 +64,7 @@ function mapRowToBusiness(b: any): Business {
         extraKmRate: Number(b.extra_km_rate) || undefined,
         waitRatePerMin: Number(b.wait_rate_per_min) || undefined,
         locationLink: b.location_link,
-        routeType: b.route_type,
+        routeType: b.route_type ? (['vespertina', 'evening', 'tarde'].includes(String(b.route_type).toLowerCase().trim()) ? 'Vespertina' : 'Matutina') : undefined,
         planType: parsedProfile.planType,
         plansCount: parsedProfile.plansCount,
         exclusions: parsedProfile.exclusions,

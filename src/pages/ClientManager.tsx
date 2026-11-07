@@ -1060,19 +1060,28 @@ const ClientManager: React.FC = () => {
   };
 
   const showFeedbackToast = (message: string) => {
+    const existing = document.getElementById('hd-manager-toast');
+    if (existing) existing.remove();
+
     const alertDiv = document.createElement('div');
-    alertDiv.className = "fixed bottom-5 right-5 bg-purple-600 text-white font-bold text-xs py-3 px-6 rounded-2xl shadow-2xl z-50 animate-bounce";
+    alertDiv.id = 'hd-manager-toast';
+    alertDiv.className = "fixed bottom-5 right-5 bg-purple-700/95 text-white font-black text-xs py-3 px-6 rounded-2xl shadow-2xl z-50 backdrop-blur-md border border-purple-400/30 transition-all duration-300";
     alertDiv.innerText = message;
     document.body.appendChild(alertDiv);
-    setTimeout(() => alertDiv.remove(), 3000);
+    setTimeout(() => {
+      if (alertDiv.parentNode) alertDiv.remove();
+    }, 3500);
   };
 
   const handleSwitchClientRoute = async (biz: any) => {
-    const currentRoute: 'Matutina' | 'Vespertina' = (biz.routeType as 'Matutina' | 'Vespertina') || 'Vespertina';
-    const targetRoute: 'Matutina' | 'Vespertina' = currentRoute === 'Vespertina' ? 'Matutina' : 'Vespertina';
+    const isCurrentMorning = (biz.routeType || '').toLowerCase() === 'matutina';
+    const currentRoute: 'Matutina' | 'Vespertina' = isCurrentMorning ? 'Matutina' : 'Vespertina';
+    const targetRoute: 'Matutina' | 'Vespertina' = isCurrentMorning ? 'Vespertina' : 'Matutina';
 
     const confirmed = window.confirm(
-      `¿Deseas cambiar a "${biz.name}" a la Ruta ${targetRoute}?\n\n• Se moverá a Inactivos en la hoja de ${currentRoute}.\n• Se copiará y activará en la hoja de ${targetRoute}.`
+      `¿Deseas cambiar a "${biz.name}" a la Ruta ${targetRoute}?\n\n` +
+      `• Se guardará y activará inmediatamente en la base de datos de Ruta ${targetRoute}.\n` +
+      `• Se sincronizará en segundo plano con las hojas de cálculo correspondientes.`
     );
     if (!confirmed) return;
 
@@ -1080,19 +1089,49 @@ const ClientManager: React.FC = () => {
 
     try {
       const currentConfig = parseClientProfile(biz.email);
+
+      // Validar si el chofer actual opera en el nuevo turno; si no, dejar SIN ASIGNAR
+      let nextDriver = 'SIN ASIGNAR';
+      if (biz.driver && biz.driver !== 'SIN ASIGNAR') {
+        const assignedDriver = systemDrivers.find(
+          d => d.name.toUpperCase().trim() === (biz.driver || '').toUpperCase().trim()
+        );
+        const canDriveTarget = assignedDriver
+          ? (targetRoute === 'Matutina' ? !!assignedDriver.morningSheetUrl : !!assignedDriver.eveningSheetUrl)
+          : false;
+        if (canDriveTarget) {
+          nextDriver = biz.driver;
+        }
+      }
+
       const updatedConfig = {
         ...currentConfig,
         isActive: true,
-        routeOrder: 9999
+        routeOrder: 9999,
+        driver: nextDriver
       };
 
       const updatedClientObject: Business = {
         ...biz,
         routeType: targetRoute,
+        routeOrder: 9999,
+        isActive: true,
+        driver: nextDriver,
         email: JSON.stringify(updatedConfig)
       };
 
-      // 1. Prepare payload for Google Sheets with full fallbacks
+      // 1. Guardar de forma atómica e inmediata en Supabase y estado local (Zustand)
+      showFeedbackToast(`💾 Transfiriendo a ${biz.name} a Ruta ${targetRoute}...`);
+      const success = await updateClientInStore(updatedClientObject);
+      if (!success) {
+        showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
+        setSavingClientId(null);
+        return;
+      }
+
+      showFeedbackToast(`✅ ¡${biz.name} transferido a Ruta ${targetRoute} con éxito!`);
+
+      // 2. Preparar payload completo para Google Sheets
       const clientPayload = {
         name: biz.name,
         phone: biz.phone || '',
@@ -1103,34 +1142,32 @@ const ClientManager: React.FC = () => {
         plansCount: biz.plansCount || currentConfig.plansCount || 1,
         exclusions: biz.exclusions || currentConfig.exclusions || 'Ninguna',
         siglas: biz.siglas || currentConfig.siglas || 'C',
-        driver: (biz.driver && biz.driver !== 'SIN ASIGNAR') ? biz.driver : (currentConfig.driver && currentConfig.driver !== 'SIN ASIGNAR' ? currentConfig.driver : undefined),
+        driver: nextDriver !== 'SIN ASIGNAR' ? nextDriver : undefined,
         bags: biz.bags || calculateBagsForClient(biz.email, biz.name, currentDayIndex) || 1,
         tiempos: biz.tiempos || getClientTiempos(biz.email, biz.name) || 1
       };
 
-      // 2. Step 1: Move to "inactivos" in current route sheet
-      showFeedbackToast(`📤 Moviendo a inactivos en hoja ${currentRoute}...`);
-      await pushToGoogleSheets(currentRoute, {
-        ...clientPayload,
-        isActive: false
+      // 3. Sincronización en paralelo con Google Sheets (no bloquea la interfaz ni la base de datos)
+      Promise.allSettled([
+        pushToGoogleSheets(currentRoute, {
+          ...clientPayload,
+          isActive: false
+        }),
+        pushToGoogleSheets(targetRoute, {
+          ...clientPayload,
+          isActive: true
+        })
+      ]).then((results) => {
+        const failed = results.filter(r => r.status === 'rejected');
+        if (failed.length === 0) {
+          showFeedbackToast(`📋 Sincronizado en Google Sheets: Ruta ${targetRoute}`);
+        } else {
+          console.warn('[handleSwitchClientRoute] Advertencia al sincronizar hojas de Google:', results);
+        }
+      }).catch(err => {
+        console.warn('[handleSwitchClientRoute] Error en llamada a hojas de cálculo:', err);
       });
 
-      // 3. Step 2: Copy and activate in target route sheet
-      showFeedbackToast(`📥 Registrando como activo en hoja ${targetRoute}...`);
-      await pushToGoogleSheets(targetRoute, {
-        ...clientPayload,
-        isActive: true
-      });
-
-      // 4. Step 3: Update local store and Supabase database
-      showFeedbackToast(`💾 Guardando cambios en base de datos...`);
-      const success = await updateClientInStore(updatedClientObject);
-      if (!success) {
-        showFeedbackToast('❌ Error al actualizar el cliente en la base de datos.');
-        return;
-      }
-
-      showFeedbackToast(`✅ ¡${biz.name} transferido a Ruta ${targetRoute} con éxito!`);
     } catch (err) {
       console.error('Error switching client route:', err);
       showFeedbackToast('❌ Error al cambiar de ruta.');
@@ -1340,6 +1377,20 @@ const ClientManager: React.FC = () => {
             updatedCount++;
           }
         } else {
+          // Si el cliente no está en la ruta seleccionada, verificar si ya existe en la otra ruta en la BD
+          const existsInAnyRoute = latestDbClients.find(c => {
+            const cName = normalizeName(c.name);
+            if (cName !== normalizedSheetName) return false;
+            const cAddr = normalizeAddress(c.location || '');
+            if (!normalizedSheetAddress || !cAddr) return true;
+            return cAddr === normalizedSheetAddress || cAddr.includes(normalizedSheetAddress) || normalizedSheetAddress.includes(cAddr);
+          });
+
+          if (existsInAnyRoute) {
+            console.log(`[GoogleSheetsSync] Cliente "${sheetClient.name}" ya existe registrado en la BD en Ruta ${existsInAnyRoute.routeType}. Omitiendo creación duplicada.`);
+            continue;
+          }
+
           const subNames = splitClientNames(sheetClient.name);
           const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || (sheetClient.tiempos === 3 ? 'D+C+C' : sheetClient.tiempos === 2 ? 'C+C' : 'C');
           const sigConfig = getSiglasConfig(defaultSiglas);
@@ -2261,7 +2312,7 @@ const ClientManager: React.FC = () => {
                 const { planType, plansCount, exclusions, siglas, driver, isActive, plans, subNames, bags, bagsSunMon, bagsWedSun } = biz;
 
 
-                const isMorning = biz.routeType === 'Matutina';
+                const isMorning = (biz.routeType || '').toLowerCase() === 'matutina';
                 const isMultiClient = (plans && plans.length > 1) || (subNames && subNames.length > 1);
 
                 return (
@@ -2640,7 +2691,7 @@ const ClientManager: React.FC = () => {
 
       {/* ── COMPLETE COLUMNS EDITOR MODAL ────────────────────────────────────── */}
       {editingClient && (() => {
-        const isMorning = editingClient.routeType === 'Matutina';
+        const isMorning = (editingClient.routeType || '').toLowerCase() === 'matutina';
 
         return (
           <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
