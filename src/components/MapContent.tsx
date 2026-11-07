@@ -37,6 +37,7 @@ export interface MapContentProps {
     selectedClient?: RouteClient | null;
     onSelectClient?: (client: RouteClient | null) => void;
     isDispatchOpen?: boolean;
+    loadingRoute?: boolean;
 }
 
 interface DisplayClientMarker {
@@ -121,7 +122,8 @@ const MapContent = ({
     selectedRoute = null,
     selectedClient = null,
     onSelectClient,
-    isDispatchOpen = true
+    isDispatchOpen = true,
+    loadingRoute = false
 }: MapContentProps) => {
     const [internalSelectedClient, setInternalSelectedClient] = useState<RouteClient | null>(null);
     const activeSelectedClient = selectedClient ?? internalSelectedClient;
@@ -196,8 +198,8 @@ const MapContent = ({
             }
         }
 
-        // 2. Fallback: If routeDrivers has no coordinates, use active businesses from Supabase
-        if (result.length === 0 && businesses && businesses.length > 0) {
+        // 2. Fallback: Únicamente si NO se está cargando una ruta y NO hay ruta activa seleccionada
+        if (!loadingRoute && !selectedRoute && result.length === 0 && businesses && businesses.length > 0) {
             const targetRoute = selectedRoute === 'morning' ? 'Matutina' : selectedRoute === 'evening' ? 'Vespertina' : null;
             
             businesses.forEach((biz, idx) => {
@@ -252,7 +254,7 @@ const MapContent = ({
         }
 
         return result;
-    }, [showBusinesses, routeDrivers, selectedDriverForDetails, businesses, selectedRoute, driverColors]);
+    }, [showBusinesses, routeDrivers, selectedDriverForDetails, businesses, selectedRoute, driverColors, loadingRoute]);
 
     // Coordinates of currently active selected client
     const activeSelectedClientPos = useMemo(() => {
@@ -607,6 +609,16 @@ const MapContent = ({
                     </AdvancedMarker>
                 )}
             </Map>
+
+            {/* Floating indicator while ordering / loading route stops */}
+            {loadingRoute && (
+                <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[500] bg-slate-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full border border-white/20 shadow-2xl flex items-center gap-3 animate-pulse pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-purple-400 rounded-full animate-spin shrink-0" />
+                    <span className="text-xs font-bold tracking-wide">
+                        Organizando paradas y repartidores en tiempo real...
+                    </span>
+                </div>
+            )}
         </div>
     );
 };

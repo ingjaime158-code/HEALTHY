@@ -803,62 +803,79 @@ export async function buildDriverProgress(
 
   const driverStartCoordsMap = new Map<string, string | null>();
 
-  // 4. For each driver, fetch their individual sheet to get the correct ORDEN
+  // 4. For each driver, fetch their individual sheet IN PARALLEL to get the correct ORDEN
   //    and apply it to the client list, skipping ORDEN 0 (PUNTO DE INICIO)
-  for (const [driverName, clients] of driverMap) {
-    // Find matching DB driver - Strict match first
-    let dbDriver = driversDb.find(d => d.name.toUpperCase().trim() === driverName.toUpperCase().trim());
-    
-    if (!dbDriver) {
+  const driverEntries = Array.from(driverMap.entries());
+
+  await Promise.all(
+    driverEntries.map(async ([driverName, clients]) => {
+      // Find matching DB driver - Strict match first
+      let dbDriver = driversDb.find(d => d.name.toUpperCase().trim() === driverName.toUpperCase().trim());
+      
+      if (!dbDriver) {
         // Fallback: Pick the best partial match (closest length) to avoid 'BRAYAN' mapping to 'BRAYAN 2'
         const partialMatches = driversDb.filter(d => 
-            d.name.toUpperCase().includes(driverName.toUpperCase().trim()) || 
-            driverName.toUpperCase().trim().includes(d.name.toUpperCase())
+          d.name.toUpperCase().includes(driverName.toUpperCase().trim()) || 
+          driverName.toUpperCase().trim().includes(d.name.toUpperCase())
         );
         if (partialMatches.length > 0) {
-            partialMatches.sort((a, b) => Math.abs(a.name.length - driverName.length) - Math.abs(b.name.length - driverName.length));
-            dbDriver = partialMatches[0];
+          partialMatches.sort((a, b) => Math.abs(a.name.length - driverName.length) - Math.abs(b.name.length - driverName.length));
+          dbDriver = partialMatches[0];
         }
-    }
-
-    // Get the driver's individual sheet URL
-    const driverSheetUrl = dbDriver
-      ? (routeType === 'morning' ? dbDriver.morning_sheet_url : dbDriver.evening_sheet_url) || ''
-      : '';
-
-    if (driverSheetUrl) {
-      // Fetch the driver's individual ORDEN mapping and start coordinates
-      const { orderMap, startCoords } = await fetchDriverOrderMap(driverSheetUrl);
-      driverStartCoordsMap.set(driverName, startCoords);
-
-      if (orderMap.size > 0) {
-        let matchedCount = 0;
-        // Apply ORDEN and BOLSAS from the driver's sheet to each client
-        for (const client of clients) {
-          const normalizedClientName = normalizeName(client.name);
-          const driverData = findOrderForClient(normalizedClientName, orderMap);
-          if (driverData !== undefined) {
-            client.order = driverData.orden;
-            client.bags = driverData.bags > 0 ? driverData.bags : client.bags; // Prefer driver sheet bags, fallback to master
-            matchedCount++;
-          } else {
-            // Unmatched clients go to the bottom
-            client.order = 9999 + clients.indexOf(client);
-            console.warn(`[routeMonitor] ⚠ No order match for "${client.name}" (normalized: "${normalizedClientName}") in ${driverName}'s sheet`);
-          }
-        }
-        console.log(`[routeMonitor] ✅ ${driverName}: ${matchedCount}/${clients.length} clients matched with ORDEN from individual sheet`);
-      } else {
-        console.warn(`[routeMonitor] ⚠ ${driverName}: driver sheet returned empty order map`);
       }
-    } else {
-      driverStartCoordsMap.set(driverName, null);
-      console.warn(`[routeMonitor] ⚠ ${driverName}: no individual sheet URL found (dbDriver: ${dbDriver?.name || 'NOT FOUND'})`);
-    }
 
-    // Sort clients by the order retrieved from the driver's individual sheet
-    clients.sort((a, b) => a.order - b.order);
-  }
+      // Get the driver's individual sheet URL
+      const driverSheetUrl = dbDriver
+        ? (routeType === 'morning' ? dbDriver.morning_sheet_url : dbDriver.evening_sheet_url) || ''
+        : '';
+
+      if (driverSheetUrl) {
+        try {
+          // Fetch the driver's individual ORDEN mapping and start coordinates
+          const { orderMap, startCoords } = await fetchDriverOrderMap(driverSheetUrl);
+          driverStartCoordsMap.set(driverName, startCoords);
+
+          if (orderMap.size > 0) {
+            let matchedCount = 0;
+            // Apply ORDEN and BOLSAS from the driver's sheet to each client
+            for (const client of clients) {
+              const normalizedClientName = normalizeName(client.name);
+              const driverData = findOrderForClient(normalizedClientName, orderMap);
+              if (driverData !== undefined) {
+                client.order = driverData.orden;
+                client.bags = driverData.bags > 0 ? driverData.bags : client.bags; // Prefer driver sheet bags, fallback to master
+                matchedCount++;
+              } else {
+                // Unmatched clients go to the bottom
+                client.order = 9999 + clients.indexOf(client);
+                console.warn(`[routeMonitor] ⚠ No order match for "${client.name}" in ${driverName}'s sheet`);
+              }
+            }
+            console.log(`[routeMonitor] ✅ ${driverName}: ${matchedCount}/${clients.length} clients matched with ORDEN from individual sheet`);
+          } else {
+            console.warn(`[routeMonitor] ⚠ ${driverName}: driver sheet returned empty order map`);
+            // Assign original sequential order as fallback
+            clients.forEach((c, idx) => { c.order = idx + 1; });
+          }
+        } catch (err) {
+          console.warn(`[routeMonitor] ⚠ ${driverName}: Error fetching individual sheet:`, err);
+          clients.forEach((c, idx) => { c.order = idx + 1; });
+        }
+      } else {
+        driverStartCoordsMap.set(driverName, null);
+        // No individual sheet URL configured: assign clean sequential order
+        clients.forEach((c, idx) => { c.order = idx + 1; });
+      }
+
+      // Sort clients by the order retrieved from the driver's individual sheet
+      clients.sort((a, b) => a.order - b.order);
+
+      // Normalize client stop order to clean, consecutive 1-based integers (1, 2, 3... N)
+      clients.forEach((c, idx) => {
+        c.order = idx + 1;
+      });
+    })
+  );
 
   // 5. Build driver info with progress
   const result: DriverRouteInfo[] = [];

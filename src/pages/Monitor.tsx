@@ -189,6 +189,8 @@ const FleetMonitor = () => {
 
     const handleSelectRoute = async (route: 'morning' | 'evening' | null) => {
         setSelectedRoute(route);
+        setSelectedDriverForDetails(null);
+        setSelectedClient(null);
         if (route) {
             setLoadingRoute(true);
             setIsDispatchOpen(true);
@@ -219,11 +221,13 @@ const FleetMonitor = () => {
             } catch (e: any) {
                 console.error('[Monitor] Error obteniendo choferes:', e);
                 alert('Error al cargar la ruta: ' + e.message);
+            } finally {
+                setLoadingRoute(false);
             }
-            setLoadingRoute(false);
         } else {
             setRouteDrivers([]);
             setShowMyMap(false);
+            setLoadingRoute(false);
         }
     };
 
@@ -333,28 +337,7 @@ const FleetMonitor = () => {
             }
 
             // Load Vespertina (evening) route by default on mount
-            setLoadingRoute(true);
-            setIsDispatchOpen(true);
-            try {
-                const mapEntry = fetchedDestinations?.find((m: any) => m.eveningMapUrl && m.eveningMapUrl.length > 5);
-                if (mapEntry) {
-                    setMyMapUrl(mapEntry.eveningMapUrl);
-                    setShowMyMap(true);
-                } else {
-                    setShowMyMap(false);
-                    setMyMapUrl(null);
-                }
-            } catch (e) {
-                console.error('[Monitor] Error al cargar mapa vespertino por defecto:', e);
-            }
-
-            try {
-                const progress = await buildDriverProgress(EVENING_SHEET_ID, EVENING_GID, 'evening', fetchedDrivers || []);
-                setRouteDrivers(progress);
-            } catch (e: any) {
-                console.error('[Monitor] Error obteniendo choferes vespertinos por defecto:', e);
-            }
-            setLoadingRoute(false);
+            await handleSelectRoute('evening');
         };
         loadData();
     }, []);
@@ -364,8 +347,11 @@ const FleetMonitor = () => {
         if (!selectedRoute) return;
 
         let isMounted = true;
+        let isFetching = false;
 
         const fetchProgress = async () => {
+            if (isFetching) return;
+            isFetching = true;
             try {
                 const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
                 const sheetId = selectedRoute === 'morning' ? MORNING_SHEET_ID : EVENING_SHEET_ID;
@@ -374,6 +360,8 @@ const FleetMonitor = () => {
                 if (isMounted) setRouteDrivers(progress);
             } catch (e) {
                 console.error('[Monitor] Error refreshing delivery progress:', e);
+            } finally {
+                isFetching = false;
             }
         };
 
@@ -386,9 +374,9 @@ const FleetMonitor = () => {
             )
             .subscribe();
 
-        // Fallback polling every 15 seconds to ensure the sidebar stays updated
+        // Fallback polling every 30 seconds to ensure the sidebar stays updated
         // even if Supabase Realtime is not enabled for the table.
-        const intervalId = setInterval(fetchProgress, 15000);
+        const intervalId = setInterval(fetchProgress, 30000);
 
         return () => {
             isMounted = false;
@@ -933,6 +921,7 @@ const FleetMonitor = () => {
                             selectedClient={selectedClient}
                             onSelectClient={setSelectedClient}
                             isDispatchOpen={isDispatchOpen}
+                            loadingRoute={loadingRoute}
                         />
 
                         {/* Sidebar: Nueva Entrega */}
