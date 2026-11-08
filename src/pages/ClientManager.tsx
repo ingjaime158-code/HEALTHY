@@ -676,18 +676,30 @@ const ClientManager: React.FC = () => {
         const sheetId = extractSheetId(sheetUrl);
 
         if (sheetId) {
-          const clientsForDistribution = newStops.map((c, index) => ({
-            orden: index + 1,
-            name: c.name,
-            phone: c.phone || '',
-            address: c.location || '',
-            locationLink: c.locationLink || '',
-            coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
-            planType: c.planType || 'HEALTHY',
-            tiempos: c.tiempos || 1,
-            exclusions: c.exclusions || 'Ninguna',
-            bags: c.bags || calculateBagsForClient(c.email, c.name) || 1
-          }));
+          const clientsForDistribution = newStops.map((c, index) => {
+            const prof = parseClientProfile(c.email);
+            const aCode = (c.accessCode || prof.accessCode || '').trim();
+            const aQr = (c.accessQr || prof.accessQr || '').trim();
+            const bExcl = c.exclusions && c.exclusions !== 'Ninguna' ? c.exclusions : '';
+            const combExcl = aCode
+              ? (bExcl ? `${bExcl} | 🔑 Acceso: ${aCode}` : `🔑 Acceso: ${aCode}`)
+              : (bExcl || 'Ninguna');
+
+            return {
+              orden: index + 1,
+              name: c.name,
+              phone: c.phone || '',
+              address: c.location || '',
+              locationLink: c.locationLink || '',
+              coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
+              planType: c.planType || 'HEALTHY',
+              tiempos: c.tiempos || 1,
+              exclusions: combExcl,
+              bags: c.bags || calculateBagsForClient(c.email, c.name) || 1,
+              accessCode: aCode,
+              accessQr: aQr
+            };
+          });
 
           const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
             driverName: driverName,
@@ -809,18 +821,30 @@ const ClientManager: React.FC = () => {
 
       if (sheetId) {
         // Map stops in localOptimizeStops to clients for distribution
-        const clientsForDistribution = localOptimizeStops.map((c, index) => ({
-          orden: index + 1,
-          name: c.name,
-          phone: c.phone || '',
-          address: c.location || '',
-          locationLink: c.locationLink || '',
-          coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
-          planType: c.planType || 'HEALTHY',
-          tiempos: c.tiempos || 1,
-          exclusions: c.exclusions || 'Ninguna',
-          bags: c.bags || calculateBagsForClient(c.email, c.name) || 1
-        }));
+        const clientsForDistribution = localOptimizeStops.map((c, index) => {
+          const prof = parseClientProfile(c.email);
+          const aCode = (c.accessCode || prof.accessCode || '').trim();
+          const aQr = (c.accessQr || prof.accessQr || '').trim();
+          const bExcl = c.exclusions && c.exclusions !== 'Ninguna' ? c.exclusions : '';
+          const combExcl = aCode
+            ? (bExcl ? `${bExcl} | 🔑 Acceso: ${aCode}` : `🔑 Acceso: ${aCode}`)
+            : (bExcl || 'Ninguna');
+
+          return {
+            orden: index + 1,
+            name: c.name,
+            phone: c.phone || '',
+            address: c.location || '',
+            locationLink: c.locationLink || '',
+            coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
+            planType: c.planType || 'HEALTHY',
+            tiempos: c.tiempos || 1,
+            exclusions: combExcl,
+            bags: c.bags || calculateBagsForClient(c.email, c.name) || 1,
+            accessCode: aCode,
+            accessQr: aQr
+          };
+        });
 
         const distSuccess = await distributeRoutesToGoogleSheets(selectedRoute, [{
           driverName: selectedDriverForOptimize,
@@ -1581,18 +1605,30 @@ const ClientManager: React.FC = () => {
         distributions.push({
           driverName,
           sheetId,
-          clients: clientsList.map((c, index) => ({
-            orden: index + 1,
-            name: c.name,
-            phone: c.phone || '',
-            address: c.location || '',
-            locationLink: c.locationLink || '',
-            coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
-            planType: c.planType || 'HEALTHY',
-            tiempos: c.tiempos || 1,
-            exclusions: c.exclusions || 'Ninguna',
-            bags: c.bags || calculateBagsForClient(c.email, c.name, currentDayIndex) || 1
-          }))
+          clients: clientsList.map((c, index) => {
+            const prof = parseClientProfile(c.email);
+            const aCode = (c.accessCode || prof.accessCode || '').trim();
+            const aQr = (c.accessQr || prof.accessQr || '').trim();
+            const bExcl = c.exclusions && c.exclusions !== 'Ninguna' ? c.exclusions : '';
+            const combExcl = aCode
+              ? (bExcl ? `${bExcl} | 🔑 Acceso: ${aCode}` : `🔑 Acceso: ${aCode}`)
+              : (bExcl || 'Ninguna');
+
+            return {
+              orden: index + 1,
+              name: c.name,
+              phone: c.phone || '',
+              address: c.location || '',
+              locationLink: c.locationLink || '',
+              coords: c.lat && c.lng ? `${c.lat}, ${c.lng}` : '',
+              planType: c.planType || 'HEALTHY',
+              tiempos: c.tiempos || 1,
+              exclusions: combExcl,
+              bags: c.bags || calculateBagsForClient(c.email, c.name, currentDayIndex) || 1,
+              accessCode: aCode,
+              accessQr: aQr
+            };
+          })
         });
       }
 
@@ -1880,6 +1916,11 @@ const ClientManager: React.FC = () => {
       return;
     }
 
+    const baseExcl = modalExclusions && modalExclusions !== 'Ninguna' ? modalExclusions : '';
+    const displayExcl = modalAccessCode.trim()
+      ? (baseExcl ? `${baseExcl} | 🔑 Acceso: ${modalAccessCode.trim()}` : `🔑 Acceso: ${modalAccessCode.trim()}`)
+      : (baseExcl || 'Ninguna');
+
     // Notify GAS Webhook to sync Google Sheets
     const oldRoute = (editingClient.routeType as 'Matutina' | 'Vespertina') || 'Matutina';
     if (oldRoute !== finalRouteType) {
@@ -1892,7 +1933,7 @@ const ClientManager: React.FC = () => {
         coords: modalLat && modalLng ? `${modalLat}, ${modalLng}` : '',
         planType: finalPlanType.toUpperCase(),
         plansCount: totalPlansCount,
-        exclusions: modalExclusions,
+        exclusions: displayExcl,
         siglas: finalSiglas.toUpperCase(),
         driver: modalDriver.toUpperCase(),
         isActive: false,
@@ -1912,7 +1953,7 @@ const ClientManager: React.FC = () => {
       coords: modalLat && modalLng ? `${modalLat}, ${modalLng}` : '',
       planType: finalPlanType.toUpperCase(),
       plansCount: totalPlansCount,
-      exclusions: modalExclusions,
+      exclusions: displayExcl,
       siglas: finalSiglas.toUpperCase(),
       driver: modalDriver.toUpperCase(),
       isActive: isActive,

@@ -908,6 +908,11 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                 // 2. Guardar y verificar en Hoja de Cálculo (Google Sheets)
                                 let sheetOk = false;
                                 try {
+                                    const baseExcl = labelConfig.exclusions && labelConfig.exclusions !== 'Ninguna' ? labelConfig.exclusions : '';
+                                    const displayExcl = accessCode.trim()
+                                        ? (baseExcl ? `${baseExcl} | 🔑 Acceso: ${accessCode.trim()}` : `🔑 Acceso: ${accessCode.trim()}`)
+                                        : (baseExcl || 'Ninguna');
+
                                     sheetOk = await pushToGoogleSheets(routeType, {
                                         name: finalName,
                                         phone: finalPhone,
@@ -917,7 +922,7 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                         bags: finalBags,
                                         planType: labelConfig.planType,
                                         plansCount: labelConfig.plansCount,
-                                        exclusions: labelConfig.exclusions,
+                                        exclusions: displayExcl,
                                         siglas: labelConfig.siglas,
                                         driver: labelConfig.driver,
                                         tiempos: labelConfig.tiempos,
