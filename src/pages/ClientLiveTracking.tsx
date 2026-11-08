@@ -640,10 +640,6 @@ export const ClientLiveTracking: React.FC = () => {
                         </div>
                     </div>
 
-                    <p className="text-[11px] text-gray-400 leading-relaxed max-w-xs">
-                        🛡️ Por políticas de privacidad y seguridad de nuestro equipo de reparto, la transmisión de ubicación en vivo se desactiva inmediatamente al finalizar la entrega.
-                    </p>
-
                     <div className="mt-6 pt-6 border-t border-white/10 w-full flex items-center justify-center gap-2 text-xs text-emerald-400 font-bold">
                         <span>🍏 Healthy Dream</span>
                         <span className="text-gray-600">•</span>
