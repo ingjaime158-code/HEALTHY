@@ -90,7 +90,9 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
     siglas?: string,
     driver?: string,
     isActive?: boolean,
-    tiempos?: number
+    tiempos?: number,
+    accessCode?: string,
+    accessQr?: string
 }) => {
     const url = GAS_URLS[routeType];
     if (!url) {
@@ -195,6 +197,36 @@ export const pushToGoogleSheets = async (routeType: 'Matutina' | 'Vespertina', d
             'estatus': data.isActive ? '1' : '0',
             'activo': data.isActive ? '1' : '0',
             'ACTIVO': data.isActive ? '1' : '0',
+
+            // Access Code / Gate PIN / Privada variations
+            'ACCESO': data.accessCode || '',
+            'acceso': data.accessCode || '',
+            'CÓDIGO DE ACCESO': data.accessCode || '',
+            'código de acceso': data.accessCode || '',
+            'CODIGO DE ACCESO': data.accessCode || '',
+            'codigo de acceso': data.accessCode || '',
+            'CODIGO ACCESO': data.accessCode || '',
+            'codigo acceso': data.accessCode || '',
+            'CASETA': data.accessCode || '',
+            'caseta': data.accessCode || '',
+            'PIN': data.accessCode || '',
+            'pin': data.accessCode || '',
+            'PRIVADA': data.accessCode || '',
+            'privada': data.accessCode || '',
+            'PORTON': data.accessCode || '',
+            'porton': data.accessCode || '',
+            'accessCode': data.accessCode || '',
+            'access_code': data.accessCode || '',
+
+            // QR Code variations
+            'QR': data.accessQr || '',
+            'qr': data.accessQr || '',
+            'CÓDIGO QR': data.accessQr || '',
+            'código qr': data.accessQr || '',
+            'CODIGO QR': data.accessQr || '',
+            'codigo qr': data.accessQr || '',
+            'accessQr': data.accessQr || '',
+            'access_qr': data.accessQr || '',
 
             // Other fields variations
             'exclusiones': finalExclusions,

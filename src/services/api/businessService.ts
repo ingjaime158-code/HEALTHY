@@ -76,6 +76,8 @@ function mapRowToBusiness(b: any): Business {
         routeOrder: parsedProfile.routeOrder,
         package: parsedProfile.package,
         plans: parsedProfile.plans,
+        accessCode: parsedProfile.accessCode,
+        accessQr: parsedProfile.accessQr,
         routeConfigs: b.route_configs || {
             ...(parsedProfile.Matutina ? { Matutina: parsedProfile.Matutina } : {}),
             ...(parsedProfile.Vespertina ? { Vespertina: parsedProfile.Vespertina } : {})

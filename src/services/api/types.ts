@@ -33,6 +33,8 @@ export interface Business {
     routeOrder?: number;
     package?: string;
     plans?: any[];
+    accessCode?: string;
+    accessQr?: string;
     routeConfigs?: Record<string, any>;
 }
 

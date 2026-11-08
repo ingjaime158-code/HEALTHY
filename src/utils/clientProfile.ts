@@ -24,6 +24,8 @@ export interface ClientProfileConfig {
   routeOrder?: number;
   package?: string;
   plans?: ClientPlanItem[];
+  accessCode?: string; // Código numérico o PIN de caseta / privada
+  accessQr?: string;   // URL de imagen, imagen base64 o texto/enlace QR
   [key: string]: any;
 }
 
@@ -132,7 +134,9 @@ const DEFAULT_PROFILE: ClientProfileConfig = {
   extraDishes: 0,
   tiempos: 1,
   routeOrder: 9999,
-  plans: []
+  plans: [],
+  accessCode: '',
+  accessQr: '',
 };
 
 /**
@@ -163,7 +167,9 @@ export function parseClientProfile(emailJsonOrBusiness: string | Record<string, 
       tiempos: b.tiempos ?? baseFromEmail.tiempos,
       routeOrder: b.routeOrder ?? b.route_order ?? baseFromEmail.routeOrder,
       package: b.package ?? baseFromEmail.package,
-      plans: Array.isArray(b.plans) && b.plans.length > 0 ? b.plans : baseFromEmail.plans
+      plans: Array.isArray(b.plans) && b.plans.length > 0 ? b.plans : baseFromEmail.plans,
+      accessCode: b.accessCode ?? b.access_code ?? baseFromEmail.accessCode ?? '',
+      accessQr: b.accessQr ?? b.access_qr ?? baseFromEmail.accessQr ?? '',
     };
   }
 

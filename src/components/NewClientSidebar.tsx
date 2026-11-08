@@ -55,6 +55,10 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
 
     const [extraDishes, setExtraDishes] = useState(0);
 
+    // Acceso a colonia privada / caseta
+    const [accessCode, setAccessCode] = useState('');
+    const [accessQr, setAccessQr] = useState('');
+
     const packageTiempos: Record<string, number> = {
         'Comida': 1,
         'Comida + Cena': 2,
@@ -230,6 +234,8 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
         setNewCustomTiempos(1);
         setExtraDishes(0);
         setFirstCustomerDraft(null);
+        setAccessCode('');
+        setAccessQr('');
     };
 
     return (
@@ -634,6 +640,98 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                         </div>
                     </div>
 
+                    {/* Acceso a Colonia Privada / Caseta */}
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 mt-2 space-y-3.5">
+                        <label className="block text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[16px]">vpn_key</span>
+                            Acceso a Colonia Privada / Caseta
+                        </label>
+                        <p className="text-[10px] text-gray-400 leading-tight">
+                            Si el cliente reside en privada o fraccionamiento, ingresa el PIN de caseta o sube el código QR para que el chofer acceda de inmediato.
+                        </p>
+
+                        <div>
+                            <label className="block text-[9px] font-bold text-gray-400 mb-1 uppercase tracking-wider">
+                                Código Numérico / PIN / Interfón
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="Ej: 4590#, Interfón 204, Pase: Familia Arana..."
+                                className="w-full bg-black/40 border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                                value={accessCode}
+                                onChange={(e) => setAccessCode(e.target.value)}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[9px] font-bold text-gray-400 mb-1 uppercase tracking-wider">
+                                Código QR de Acceso (Imagen, Enlace o Código)
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="https://... o texto/código del QR"
+                                    className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                                    value={accessQr}
+                                    onChange={(e) => setAccessQr(e.target.value)}
+                                />
+                                <label className="cursor-pointer px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold flex items-center gap-1 transition-all">
+                                    <span className="material-symbols-outlined text-[16px]">upload_file</span>
+                                    <span>Subir QR</span>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => {
+                                                    setAccessQr(reader.result as string);
+                                                    showToast('Imagen del QR cargada con éxito', 'success');
+                                                };
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
+
+                            {/* Previsualización del QR */}
+                            {accessQr && (
+                                <div className="mt-2.5 p-3 bg-black/40 rounded-lg border border-amber-500/30 flex items-center gap-3">
+                                    <div className="w-16 h-16 bg-white p-1 rounded-md flex items-center justify-center shrink-0 shadow">
+                                        <img
+                                            src={accessQr.startsWith('data:image/') || accessQr.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i) || accessQr.startsWith('http')
+                                                ? accessQr
+                                                : `https://quickchart.io/qr?text=${encodeURIComponent(accessQr)}&size=200`}
+                                            alt="Previsualización QR"
+                                            className="w-full h-full object-contain"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).src = `https://quickchart.io/qr?text=${encodeURIComponent(accessQr)}&size=200`;
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-bold text-amber-400 uppercase">Vista previa de QR</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAccessQr('')}
+                                                className="text-[10px] text-red-400 hover:text-red-300 underline font-bold cursor-pointer"
+                                            >
+                                                Quitar
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-gray-400 truncate mt-0.5 font-mono">
+                                            {accessQr.startsWith('data:image/') ? 'Imagen de captura cargada' : accessQr}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     {/* Real-time Bags Calculator Card */}
                     <div className="bg-pink-500/5 border border-pink-500/10 rounded-xl p-4 mt-2 space-y-3">
                         <label className="block text-[10px] font-black text-pink-400 uppercase tracking-widest flex items-center gap-2">
@@ -782,6 +880,8 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                     tiempos: combinedTiempos,
                                     package: finalPackage,
                                     plans: combinedPlans,
+                                    accessCode: accessCode.trim(),
+                                    accessQr: accessQr.trim(),
                                     isManual: true
                                 };
                                 const emailJson = JSON.stringify(labelConfig);
@@ -796,7 +896,9 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                     lng,
                                     locationLink: newClient.locationLink,
                                     routeType,
-                                    email: emailJson
+                                    email: emailJson,
+                                    accessCode: accessCode.trim(),
+                                    accessQr: accessQr.trim()
                                 } as any);
 
                                 if (!savedBusiness) {
@@ -819,7 +921,9 @@ export const NewClientSidebar: React.FC<Props> = ({ showToast, setBusinesses }) 
                                         siglas: labelConfig.siglas,
                                         driver: labelConfig.driver,
                                         tiempos: labelConfig.tiempos,
-                                        isActive: true
+                                        isActive: true,
+                                        accessCode: accessCode.trim(),
+                                        accessQr: accessQr.trim()
                                     });
                                 } catch (sheetErr) {
                                     console.warn('[NewClientSidebar] Error en sincronización con Google Sheets:', sheetErr);

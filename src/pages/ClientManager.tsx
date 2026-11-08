@@ -207,6 +207,8 @@ const ClientManager: React.FC = () => {
   const [isGeocoding, setIsGeocoding] = useState<boolean>(false);
   const [modalDriver, setModalDriver] = useState<string>('SIN ASIGNAR');
   const [modalExclusions, setModalExclusions] = useState<string>('Ninguna');
+  const [modalAccessCode, setModalAccessCode] = useState<string>('');
+  const [modalAccessQr, setModalAccessQr] = useState<string>('');
 
   // Plan builder states inside modal
   const [modalPlansList, setModalPlansList] = useState<PlanItem[]>([]);
@@ -1771,6 +1773,8 @@ const ClientManager: React.FC = () => {
     let exclusions = 'Ninguna';
     let driver = 'SIN ASIGNAR';
     let extraDishes = 0;
+    let accessCode = '';
+    let accessQr = '';
 
     if (client.email && client.email.startsWith('{') && client.email.endsWith('}')) {
       try {
@@ -1778,6 +1782,8 @@ const ClientManager: React.FC = () => {
         exclusions = parsed.exclusions || 'Ninguna';
         driver = parsed.driver || 'SIN ASIGNAR';
         extraDishes = parseInt(parsed.extraDishes) || 0;
+        accessCode = parsed.accessCode || '';
+        accessQr = parsed.accessQr || '';
       } catch (e) {}
     }
 
@@ -1785,6 +1791,8 @@ const ClientManager: React.FC = () => {
 
     setModalDriver(driver);
     setModalExclusions(exclusions);
+    setModalAccessCode(accessCode || client.accessCode || '');
+    setModalAccessQr(accessQr || client.accessQr || '');
     setModalPlansList(plans);
     setModalNewPlanType('HEALTHY');
     setModalNewPackage('Comida');
@@ -1846,7 +1854,9 @@ const ClientManager: React.FC = () => {
       extraDishes: modalExtraDishes,
       tiempos: sumTiempos,
       package: finalPackage,
-      plans: normalizedModalPlans
+      plans: normalizedModalPlans,
+      accessCode: modalAccessCode.trim(),
+      accessQr: modalAccessQr.trim()
     };
 
     const updatedClientObject: Business = {
@@ -1858,6 +1868,8 @@ const ClientManager: React.FC = () => {
       lng: modalLng,
       locationLink: finalLocationLink,
       routeType: finalRouteType,
+      accessCode: modalAccessCode.trim(),
+      accessQr: modalAccessQr.trim(),
       email: JSON.stringify(updatedConfig)
     };
 
@@ -1885,7 +1897,9 @@ const ClientManager: React.FC = () => {
         driver: modalDriver.toUpperCase(),
         isActive: false,
         bags: activeBags,
-        tiempos: sumTiempos
+        tiempos: sumTiempos,
+        accessCode: modalAccessCode.trim(),
+        accessQr: modalAccessQr.trim()
       });
     }
 
@@ -1903,7 +1917,9 @@ const ClientManager: React.FC = () => {
       driver: modalDriver.toUpperCase(),
       isActive: isActive,
       bags: activeBags,
-      tiempos: sumTiempos
+      tiempos: sumTiempos,
+      accessCode: modalAccessCode.trim(),
+      accessQr: modalAccessQr.trim()
     });
 
     setEditingClient(null);
@@ -3081,6 +3097,93 @@ const ClientManager: React.FC = () => {
                       value={modalExclusions}
                       onChange={(e) => setModalExclusions(e.target.value)}
                     />
+                  </div>
+                </div>
+
+                {/* Acceso a Colonia Privada / Caseta */}
+                <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-3">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[16px]">vpn_key</span>
+                    Acceso a Colonia Privada / Caseta
+                  </label>
+                  <p className="text-[10px] text-white/50 leading-tight">
+                    PIN numérico de caseta o código QR para que el repartidor tenga acceso expedito al fraccionamiento.
+                  </p>
+
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-bold text-white/60 uppercase">Código Numérico / PIN / Interfón</label>
+                    <input
+                      type="text"
+                      className="w-full bg-white/5 border border-white/10 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                      placeholder="Ej: 4590#, Interfón 204, Pedir pase..."
+                      value={modalAccessCode}
+                      onChange={(e) => setModalAccessCode(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-bold text-white/60 uppercase">Código QR de Acceso (Imagen, Enlace o Código)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 bg-white/5 border border-white/10 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono"
+                        placeholder="https://... o texto/código del QR"
+                        value={modalAccessQr}
+                        onChange={(e) => setModalAccessQr(e.target.value)}
+                      />
+                      <label className="cursor-pointer px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1 transition-all">
+                        <span className="material-symbols-outlined text-[16px]">upload_file</span>
+                        <span>Subir QR</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setModalAccessQr(reader.result as string);
+                                showFeedbackToast('Imagen del QR cargada con éxito');
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    {modalAccessQr && (
+                      <div className="mt-2 p-3 bg-black/40 rounded-xl border border-amber-500/30 flex items-center gap-3">
+                        <div className="w-16 h-16 bg-white p-1 rounded-lg flex items-center justify-center shrink-0 shadow">
+                          <img
+                            src={modalAccessQr.startsWith('data:image/') || modalAccessQr.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i) || modalAccessQr.startsWith('http')
+                              ? modalAccessQr
+                              : `https://quickchart.io/qr?text=${encodeURIComponent(modalAccessQr)}&size=200`}
+                            alt="Previsualización QR"
+                            className="w-full h-full object-contain"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = `https://quickchart.io/qr?text=${encodeURIComponent(modalAccessQr)}&size=200`;
+                            }}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-amber-400 uppercase">Vista previa de QR</span>
+                            <button
+                              type="button"
+                              onClick={() => setModalAccessQr('')}
+                              className="text-[10px] text-red-400 hover:text-red-300 underline font-bold cursor-pointer"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-gray-400 truncate mt-0.5 font-mono">
+                            {modalAccessQr.startsWith('data:image/') ? 'Imagen de captura cargada' : modalAccessQr}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
