@@ -578,7 +578,8 @@ const MapContent = ({
                                 const origin = window.location.origin;
                                 const pathname = window.location.pathname.replace(/\/$/, '');
                                 const cleanCoords = activeSelectedClient.coords ? activeSelectedClient.coords.replace(/\s+/g, '') : '';
-                                const trackingUrl = driverId ? `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${activeSelectedClient.order || 1}&route=${selectedRoute || 'evening'}${cleanCoords ? `&dest=${encodeURIComponent(cleanCoords)}` : ''}&name=${encodeURIComponent(activeSelectedClient.name)}` : '';
+                                const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+                                const trackingUrl = driverId ? `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${activeSelectedClient.order || 1}&route=${selectedRoute || 'evening'}&date=${todayStr}${cleanCoords ? `&dest=${encodeURIComponent(cleanCoords)}` : ''}&name=${encodeURIComponent(activeSelectedClient.name)}` : '';
 
                                 const phones = parseClientPhones(activeSelectedClient.phone, trackingUrl);
                                 if (phones.length === 0) return null;

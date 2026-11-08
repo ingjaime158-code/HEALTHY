@@ -43,7 +43,8 @@ const DRIVER_COLORS = [
 const buildClientTrackingUrl = (driverId: string, order: number, routeType: string, coords?: string, name?: string): string => {
     const origin = window.location.origin;
     const pathname = window.location.pathname.replace(/\/$/, '');
-    let url = `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${order}&route=${routeType}`;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    let url = `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${order}&route=${routeType}&date=${today}`;
     if (coords) {
         url += `&dest=${encodeURIComponent(coords.replace(/\s+/g, ''))}`;
     }

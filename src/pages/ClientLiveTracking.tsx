@@ -43,6 +43,7 @@ export const ClientLiveTracking: React.FC = () => {
     const routeType = searchParams.get('route') || 'evening';
     const clientNameParam = searchParams.get('name') || '';
     const destParam = searchParams.get('dest') || ''; // Format: "lat,lng"
+    const dateParam = searchParams.get('date') || ''; // Format: "YYYY-MM-DD"
 
     // Parse destination coordinates if available
     const destCoords = useMemo<[number, number] | null>(() => {
@@ -54,10 +55,49 @@ export const ClientLiveTracking: React.FC = () => {
         return null;
     }, [destParam]);
 
-    const [tracking, setTracking] = useState<TrackingState | null>(null);
-    const [loading, setLoading] = useState(true);
+    // Clave persistente en localStorage para retener de forma permanente el estado de entrega
+    const terminalStorageKey = useMemo(() => {
+        if (!driverId) return '';
+        const cleanName = (clientNameParam || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return `hd_tracking_latch_${driverId}_${clientOrder}_${routeType}${cleanName ? `_${cleanName}` : ''}`;
+    }, [driverId, clientOrder, routeType, clientNameParam]);
+
+    // Verificar si ya fue finalizado previamente en este dispositivo
+    const initialTerminalState = useMemo<TrackingState | null>(() => {
+        if (!terminalStorageKey) return null;
+        try {
+            const raw = localStorage.getItem(terminalStorageKey);
+            if (raw) {
+                const saved = JSON.parse(raw);
+                const savedTime = new Date(saved.deliveredAt || saved.savedAt || 0).getTime();
+                // Mantener el pestillo activo por 48 horas tras la entrega
+                if (Date.now() - savedTime < 48 * 60 * 60 * 1000) {
+                    return {
+                        isDelivered: true,
+                        deliveredAt: saved.deliveredAt || new Date().toISOString(),
+                        driverName: saved.driverName || 'Repartidor Healthy Dream',
+                        clientName: saved.clientName || clientNameParam || 'Cliente',
+                        lat: null,
+                        lng: null,
+                        heading: 0,
+                        lastUpdated: saved.deliveredAt || new Date().toISOString(),
+                    };
+                }
+            }
+        } catch {}
+        return null;
+    }, [terminalStorageKey, clientNameParam]);
+
+    const [tracking, setTracking] = useState<TrackingState | null>(() => initialTerminalState);
+    const [loading, setLoading] = useState<boolean>(() => !initialTerminalState);
     const [lastUpdatedSecs, setLastUpdatedSecs] = useState<number>(0);
     const [osrmInfo, setOsrmInfo] = useState<OSRMRouteInfo | null>(null);
+
+    // Candado estricto irreversible: si se marca delivered, NINGÚN evento o reinicio de ruta puede reactivarlo
+    const isDeliveredRef = useRef<boolean>(Boolean(initialTerminalState?.isDelivered));
+    const realtimeChannelRef = useRef<any>(null);
+    const pollIntervalRef = useRef<any>(null);
+    const secIntervalRef = useRef<any>(null);
 
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
@@ -68,26 +108,128 @@ export const ClientLiveTracking: React.FC = () => {
     const routeDashedLayerRef = useRef<L.Polyline | null>(null);
     const hasInitialFittedRef = useRef(false);
 
+    // Cierre permanente e irrevocable de la sesión de rastreo al finalizar entrega
+    const lockPermanentlyAsDelivered = useCallback((payload: {
+        deliveredAt: string | null;
+        driverName: string;
+        clientName: string;
+    }) => {
+        isDeliveredRef.current = true;
+
+        // 1. Guardar en almacenamiento local para inmunidad ante recargas de página
+        if (terminalStorageKey) {
+            try {
+                localStorage.setItem(terminalStorageKey, JSON.stringify({
+                    deliveredAt: payload.deliveredAt || new Date().toISOString(),
+                    driverName: payload.driverName,
+                    clientName: payload.clientName,
+                    savedAt: new Date().toISOString(),
+                }));
+            } catch {}
+        }
+
+        // 2. Destruir canal en tiempo real inmediatamente
+        if (realtimeChannelRef.current) {
+            try {
+                supabase.removeChannel(realtimeChannelRef.current);
+            } catch {}
+            realtimeChannelRef.current = null;
+        }
+
+        // 3. Detener polling
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+        }
+
+        // 4. Desmontar mapa Leaflet
+        if (mapInstanceRef.current) {
+            try {
+                mapInstanceRef.current.remove();
+            } catch {}
+            mapInstanceRef.current = null;
+        }
+
+        // 5. Fijar estado en entregado
+        setTracking({
+            isDelivered: true,
+            deliveredAt: payload.deliveredAt || new Date().toISOString(),
+            driverName: payload.driverName || 'Repartidor Healthy Dream',
+            clientName: payload.clientName || clientNameParam || 'Cliente',
+            lat: null,
+            lng: null,
+            heading: 0,
+            lastUpdated: payload.deliveredAt || new Date().toISOString(),
+        });
+        setLoading(false);
+    }, [terminalStorageKey, clientNameParam]);
+
     // Fetch tracking status from Supabase
     const fetchTracking = useCallback(async () => {
+        if (isDeliveredRef.current) return;
+
         if (!driverId) {
             setLoading(false);
             return;
         }
 
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+        const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const yesterday = yesterdayDate.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+
+        // Probar fecha actual y de ayer para blindar cambios de fecha a medianoche (00:00)
+        const datesToTry = dateParam ? [dateParam, today, yesterday] : [today, yesterday];
+
         try {
-            // Intentar llamar al RPC get_public_delivery_tracking
-            const { data, error } = await supabase.rpc('get_public_delivery_tracking', {
+            for (const testDate of datesToTry) {
+                if (isDeliveredRef.current) return;
+
+                const { data, error } = await supabase.rpc('get_public_delivery_tracking', {
+                    p_driver_id: driverId,
+                    p_client_order: clientOrder,
+                    p_route_type: routeType,
+                    p_delivery_date: testDate,
+                });
+
+                if (!error && Array.isArray(data) && data.length > 0) {
+                    const row = data[0];
+                    if (row.is_delivered) {
+                        lockPermanentlyAsDelivered({
+                            deliveredAt: row.delivered_at,
+                            driverName: row.driver_name || 'Repartidor Healthy Dream',
+                            clientName: row.client_name || clientNameParam || 'Cliente',
+                        });
+                        return;
+                    }
+                }
+            }
+
+            if (isDeliveredRef.current) return;
+
+            // Si no fue entregado en ninguna de las fechas, obtener ubicación del chofer activa
+            const { data: firstCheck } = await supabase.rpc('get_public_delivery_tracking', {
                 p_driver_id: driverId,
                 p_client_order: clientOrder,
                 p_route_type: routeType,
+                p_delivery_date: dateParam || today,
             });
 
-            if (!error && Array.isArray(data) && data.length > 0) {
-                const row = data[0];
+            if (isDeliveredRef.current) return;
+
+            if (Array.isArray(firstCheck) && firstCheck.length > 0) {
+                const row = firstCheck[0];
+                if (row.is_delivered) {
+                    lockPermanentlyAsDelivered({
+                        deliveredAt: row.delivered_at,
+                        driverName: row.driver_name || 'Repartidor Healthy Dream',
+                        clientName: row.client_name || clientNameParam || 'Cliente',
+                    });
+                    return;
+                }
+
                 setTracking({
-                    isDelivered: Boolean(row.is_delivered),
-                    deliveredAt: row.delivered_at,
+                    isDelivered: false,
+                    deliveredAt: null,
                     driverName: row.driver_name || 'Repartidor Healthy Dream',
                     clientName: row.client_name || clientNameParam || 'Cliente',
                     lat: row.lat,
@@ -99,37 +241,14 @@ export const ClientLiveTracking: React.FC = () => {
                 return;
             }
 
-            // Fallback directo a tablas si el RPC aún no está creado en BD
-            const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' }); // YYYY-MM-DD
-            const { data: logData } = await supabase
-                .from('delivery_logs')
-                .select('status, delivered_at, client_name')
-                .eq('driver_id', driverId)
-                .eq('client_order', clientOrder)
-                .eq('delivery_date', today)
-                .maybeSingle();
-
-            if (logData?.status === 'delivered') {
-                setTracking({
-                    isDelivered: true,
-                    deliveredAt: logData.delivered_at,
-                    driverName: 'Repartidor Healthy Dream',
-                    clientName: logData.client_name || clientNameParam || 'Cliente',
-                    lat: null,
-                    lng: null,
-                    heading: 0,
-                    lastUpdated: logData.delivered_at,
-                });
-                setLoading(false);
-                return;
-            }
-
-            // Si no está entregado, buscar ubicación del chofer
+            // Fallback directo a ubicación
             const { data: locData } = await supabase
                 .from('driver_locations')
                 .select('lat, lng, heading, updated_at')
                 .eq('driver_id', driverId)
                 .maybeSingle();
+
+            if (isDeliveredRef.current) return;
 
             setTracking({
                 isDelivered: false,
@@ -146,22 +265,32 @@ export const ClientLiveTracking: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [driverId, clientOrder, routeType, clientNameParam]);
+    }, [driverId, clientOrder, routeType, dateParam, clientNameParam, lockPermanentlyAsDelivered]);
 
     // Cargar inicial y escuchar canal Realtime
     useEffect(() => {
+        if (isDeliveredRef.current) {
+            setLoading(false);
+            return;
+        }
+
         fetchTracking();
 
         if (!driverId) return;
 
         // Suscribirse a ubicación en tiempo real vía Broadcast
         const channel = supabase.channel(`gps:${driverId}`);
+        realtimeChannelRef.current = channel;
+
         channel
             .on('broadcast', { event: 'location' }, (payload: any) => {
+                // Si la entrega ya terminó, IGNORAR cualquier paquete de ubicación nuevo del chofer
+                if (isDeliveredRef.current) return;
+
                 const data = payload?.payload;
                 if (data && data.lat && data.lng) {
                     setTracking(prev => {
-                        if (!prev || prev.isDelivered) return prev;
+                        if (!prev || prev.isDelivered || isDeliveredRef.current) return prev;
                         return {
                             ...prev,
                             lat: data.lat,
@@ -176,19 +305,32 @@ export const ClientLiveTracking: React.FC = () => {
             .subscribe();
 
         // Polling de respaldo cada 5 segundos
-        const pollInterval = setInterval(() => {
-            fetchTracking();
+        pollIntervalRef.current = setInterval(() => {
+            if (!isDeliveredRef.current) {
+                fetchTracking();
+            }
         }, 5000);
 
         // Contador de segundos desde última actualización
-        const secInterval = setInterval(() => {
+        secIntervalRef.current = setInterval(() => {
             setLastUpdatedSecs(s => s + 1);
         }, 1000);
 
         return () => {
-            supabase.removeChannel(channel);
-            clearInterval(pollInterval);
-            clearInterval(secInterval);
+            if (realtimeChannelRef.current) {
+                try {
+                    supabase.removeChannel(realtimeChannelRef.current);
+                } catch {}
+                realtimeChannelRef.current = null;
+            }
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+            }
+            if (secIntervalRef.current) {
+                clearInterval(secIntervalRef.current);
+                secIntervalRef.current = null;
+            }
         };
     }, [driverId, fetchTracking]);
 
