@@ -56,9 +56,9 @@ const buildClientTrackingUrl = (driverId: string, order: number, routeType: stri
 
 const buildWhatsAppDeliveryMessage = (trackingUrl?: string): string => {
     if (trackingUrl) {
-        return `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar. Puedes seguir a tu repartidor en tiempo real aquí:\n${trackingUrl}\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`;
+        return `Hola, buen día.\nSomos el equipo de Reparto de Healthy Dream.\n\nLe informamos que su pedido está próximo a llegar. Puede seguir a su repartidor en tiempo real aquí:\n${trackingUrl}\n\nSi su domicilio se encuentra en privada o fraccionamiento con caseta, le agradeceríamos compartirnos el acceso para agilizar la entrega.\n\n¡Healthy Dream agradece su preferencia!`;
     }
-    return `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar.\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`;
+    return `Hola, buen día.\nSomos el equipo de Reparto de Healthy Dream.\n\nLe informamos que su pedido está próximo a llegar.\n\nSi su domicilio se encuentra en privada o fraccionamiento con caseta, le agradeceríamos compartirnos el acceso para agilizar la entrega.\n\n¡Healthy Dream agradece su preferencia!`;
 };
 
 const parsePhoneNumbers = (rawPhone?: string): { display: string; digits: string }[] => {
@@ -362,7 +362,7 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                                                 return phones.map((p, pIdx) => (
                                                                     <a
                                                                         key={pIdx}
-                                                                        href={`https://wa.me/${p.digits}?text=${encodeURIComponent(waText)}`}
+                                                                        href={`https://api.whatsapp.com/send?phone=${p.digits}&text=${encodeURIComponent(waText)}`}
                                                                         target="_blank"
                                                                         rel="noreferrer"
                                                                         onClick={(e) => e.stopPropagation()}

@@ -8,14 +8,14 @@ import TrafficLayer from './TrafficLayer';
 
 const DEFAULT_CENTER = { lat: 25.6866, lng: -100.3161 }; // Monterrey/Guadalupe
 
-const HEALTHY_DREAM_WHATSAPP_MSG = `Hola, buen dia🍏
-Somos el equipo de Reparto de Healthy Dream  🚗💨
+const HEALTHY_DREAM_WHATSAPP_MSG = `Hola, buen día.
+Somos el equipo de Reparto de Healthy Dream.
 
-Comunicamos que su paquete está por llegar.
+Le informamos que su pedido está próximo a llegar.
 
-En caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼
+Si su domicilio se encuentra en privada o fraccionamiento con caseta, le agradeceríamos compartirnos el acceso para agilizar la entrega.
 
-Healthy Dream agradece su preferencia🍓🥦🥩`;
+¡Healthy Dream agradece su preferencia!`;
 
 interface ParsedPhone {
     display: string;
@@ -30,7 +30,7 @@ function parseClientPhones(rawPhone?: string, trackingUrl?: string): ParsedPhone
     const seen = new Set<string>();
 
     const msg = trackingUrl
-        ? `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar. Puedes seguir a tu repartidor en tiempo real aquí:\n${trackingUrl}\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`
+        ? `Hola, buen día.\nSomos el equipo de Reparto de Healthy Dream.\n\nLe informamos que su pedido está próximo a llegar. Puede seguir a su repartidor en tiempo real aquí:\n${trackingUrl}\n\nSi su domicilio se encuentra en privada o fraccionamiento con caseta, le agradeceríamos compartirnos el acceso para agilizar la entrega.\n\n¡Healthy Dream agradece su preferencia!`
         : HEALTHY_DREAM_WHATSAPP_MSG;
 
     for (const part of parts) {
@@ -42,7 +42,7 @@ function parseClientPhones(rawPhone?: string, trackingUrl?: string): ParsedPhone
         if (seen.has(digits)) continue;
         seen.add(digits);
 
-        const waLink = `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+        const waLink = `https://api.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(msg)}`;
         const telLink = `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`;
         results.push({ display: part, waLink, telLink });
     }
@@ -53,7 +53,7 @@ function parseClientPhones(rawPhone?: string, trackingUrl?: string): ParsedPhone
         if (digits.length >= 8) {
             results.push({
                 display: rawPhone,
-                waLink: `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`,
+                waLink: `https://api.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(msg)}`,
                 telLink: `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`
             });
         }

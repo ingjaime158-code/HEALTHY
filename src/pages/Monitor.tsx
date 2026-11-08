@@ -830,8 +830,8 @@ const FleetMonitor = () => {
         }
 
         const waLink = selectedPhone
-            ? `https://wa.me/${selectedPhone}?text=${encodeURIComponent(message)}`
-            : `https://wa.me/?text=${encodeURIComponent(message)}`;
+            ? `https://api.whatsapp.com/send?phone=${selectedPhone}&text=${encodeURIComponent(message)}`
+            : `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
         window.open(waLink, '_blank');
     };
 
