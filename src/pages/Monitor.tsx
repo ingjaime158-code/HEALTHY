@@ -14,7 +14,7 @@ import MapContent from '../components/MapContent';
 
 import { useRealtimeTracking } from '../hooks/useRealtimeTracking';
 import { pushToGoogleSheets } from '../services/googleSheetsService';
-import { buildDriverProgress, DriverRouteInfo, RouteClient } from '../services/routeMonitorService';
+import { buildDriverProgress, applyDeliveryLogsToRouteDrivers, fetchTodayDeliveryLogs, DriverRouteInfo, RouteClient } from '../services/routeMonitorService';
 import { NewClientSidebar } from '../components/NewClientSidebar';
 import DispatchSidebar from '../components/DispatchSidebar';
 import { useAppStore } from '../store/useStore';
@@ -164,6 +164,17 @@ const FleetMonitor = () => {
     useEffect(() => {
         setSelectedClient(null);
     }, [selectedDriverForDetails]);
+
+    // Keep selectedDriverForDetails in sync with real-time routeDrivers updates
+    useEffect(() => {
+        if (!selectedDriverForDetails) return;
+        const current = routeDrivers.find(d => 
+            d.driverName.toUpperCase().trim() === selectedDriverForDetails.driverName.toUpperCase().trim()
+        );
+        if (current && current !== selectedDriverForDetails) {
+            setSelectedDriverForDetails(current);
+        }
+    }, [routeDrivers]);
 
     // --- Nearest Base Assignment ---
     const [isDispatchOpen, setIsDispatchOpen] = useState(true);
@@ -342,16 +353,34 @@ const FleetMonitor = () => {
         loadData();
     }, []);
 
-    // ── Realtime subscription to delivery_logs for live progress updates ──
+    // ── Ultra-fast live detection of deliveries ──
     useEffect(() => {
         if (!selectedRoute) return;
 
         let isMounted = true;
-        let isFetching = false;
+        let isFetchingLogs = false;
 
-        const fetchProgress = async () => {
-            if (isFetching) return;
-            isFetching = true;
+        // 1. Ultra-fast delivery status refresh (<100ms, direct Supabase query)
+        const refreshDeliveryStatus = async () => {
+            if (isFetchingLogs) return;
+            isFetchingLogs = true;
+            try {
+                const logs = await fetchTodayDeliveryLogs(selectedRoute);
+                if (isMounted) {
+                    setRouteDrivers(prev => applyDeliveryLogsToRouteDrivers(prev, logs));
+                }
+            } catch (e) {
+                console.warn('[Monitor] Error quick-refreshing delivery logs:', e);
+            } finally {
+                isFetchingLogs = false;
+            }
+        };
+
+        // 2. Full route data refresh (Google Sheets + Supabase, run sparingly in background)
+        let isFetchingFull = false;
+        const fetchFullRouteData = async () => {
+            if (isFetchingFull) return;
+            isFetchingFull = true;
             try {
                 const { data: dbDrivers } = await supabase.from('drivers').select('id, name, color_hex, morning_sheet_url, evening_sheet_url');
                 const sheetId = selectedRoute === 'morning' ? MORNING_SHEET_ID : EVENING_SHEET_ID;
@@ -359,28 +388,36 @@ const FleetMonitor = () => {
                 const progress = await buildDriverProgress(sheetId, gid, selectedRoute, dbDrivers || []);
                 if (isMounted) setRouteDrivers(progress);
             } catch (e) {
-                console.error('[Monitor] Error refreshing delivery progress:', e);
+                console.error('[Monitor] Error refreshing full route progress:', e);
             } finally {
-                isFetching = false;
+                isFetchingFull = false;
             }
         };
 
+        // 3. Supabase Realtime subscription for immediate push notification
         const channel = supabase
-            .channel('delivery-logs-realtime')
+            .channel(`delivery-logs-realtime-${selectedRoute}`)
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'delivery_logs' },
-                () => { fetchProgress(); }
+                () => {
+                    refreshDeliveryStatus();
+                }
             )
-            .subscribe();
+            .subscribe((status) => {
+                console.log(`[Monitor] delivery_logs realtime channel status:`, status);
+            });
 
-        // Fallback polling every 30 seconds to ensure the sidebar stays updated
-        // even if Supabase Realtime is not enabled for the table.
-        const intervalId = setInterval(fetchProgress, 30000);
+        // 4. Fast polling fallback every 3 seconds to guarantee instant updates
+        const fastIntervalId = setInterval(refreshDeliveryStatus, 3000);
+
+        // 5. Full background sync every 60 seconds
+        const fullIntervalId = setInterval(fetchFullRouteData, 60000);
 
         return () => {
             isMounted = false;
-            clearInterval(intervalId);
+            clearInterval(fastIntervalId);
+            clearInterval(fullIntervalId);
             supabase.removeChannel(channel);
         };
     }, [selectedRoute]);

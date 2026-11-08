@@ -23,11 +23,15 @@ interface ParsedPhone {
     telLink: string;
 }
 
-function parseClientPhones(rawPhone?: string): ParsedPhone[] {
+function parseClientPhones(rawPhone?: string, trackingUrl?: string): ParsedPhone[] {
     if (!rawPhone) return [];
     const parts = rawPhone.split(/[&/,;]+|\s+y\s+/i).map(p => p.trim()).filter(Boolean);
     const results: ParsedPhone[] = [];
     const seen = new Set<string>();
+
+    const msg = trackingUrl
+        ? `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar. Puedes seguir a tu repartidor en tiempo real aquí:\n${trackingUrl}\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`
+        : HEALTHY_DREAM_WHATSAPP_MSG;
 
     for (const part of parts) {
         let digits = part.replace(/\D/g, '');
@@ -38,7 +42,7 @@ function parseClientPhones(rawPhone?: string): ParsedPhone[] {
         if (seen.has(digits)) continue;
         seen.add(digits);
 
-        const waLink = `https://wa.me/${digits}?text=${encodeURIComponent(HEALTHY_DREAM_WHATSAPP_MSG)}`;
+        const waLink = `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
         const telLink = `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`;
         results.push({ display: part, waLink, telLink });
     }
@@ -49,7 +53,7 @@ function parseClientPhones(rawPhone?: string): ParsedPhone[] {
         if (digits.length >= 8) {
             results.push({
                 display: rawPhone,
-                waLink: `https://wa.me/${digits}?text=${encodeURIComponent(HEALTHY_DREAM_WHATSAPP_MSG)}`,
+                waLink: `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`,
                 telLink: `tel:${digits.startsWith('52') && digits.length === 12 ? digits.slice(2) : digits}`
             });
         }
@@ -569,7 +573,14 @@ const MapContent = ({
                             )}
 
                             {(() => {
-                                const phones = parseClientPhones(activeSelectedClient.phone);
+                                const dInfo = routeDrivers?.find(d => d.driverName === activeSelectedClient.repartidor);
+                                const driverId = dInfo?.driverId || '';
+                                const origin = window.location.origin;
+                                const pathname = window.location.pathname.replace(/\/$/, '');
+                                const cleanCoords = activeSelectedClient.coords ? activeSelectedClient.coords.replace(/\s+/g, '') : '';
+                                const trackingUrl = driverId ? `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${activeSelectedClient.order || 1}&route=${selectedRoute || 'evening'}${cleanCoords ? `&dest=${encodeURIComponent(cleanCoords)}` : ''}&name=${encodeURIComponent(activeSelectedClient.name)}` : '';
+
+                                const phones = parseClientPhones(activeSelectedClient.phone, trackingUrl);
                                 if (phones.length === 0) return null;
                                 return (
                                     <div className="flex flex-col gap-1.5 mb-2.5">

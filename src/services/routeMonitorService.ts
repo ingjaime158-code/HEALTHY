@@ -1008,3 +1008,111 @@ export async function buildDriverProgress(
 
   return result;
 }
+
+/**
+ * Rapidly applies delivery logs to existing in-memory DriverRouteInfo[]
+ * without re-downloading Google Sheets. Runs in sub-millisecond time.
+ */
+export function applyDeliveryLogsToRouteDrivers(
+  currentDrivers: DriverRouteInfo[],
+  logs: DeliveryLog[]
+): DriverRouteInfo[] {
+  if (!currentDrivers || currentDrivers.length === 0) return currentDrivers;
+
+  const deliveredNames = new Set(
+    logs.filter(l => l.status === 'delivered').map(l => normalizeName(l.client_name || ''))
+  );
+
+  const updatedDrivers = currentDrivers.map(driver => {
+    const driverLogs = logs.filter(log => {
+      if (driver.driverId && log.driver_id === driver.driverId) return true;
+      return driver.clients.some(c => normalizeName(c.name) === normalizeName(log.client_name || ''));
+    });
+
+    const driverDeliveredNames = new Set(
+      driverLogs.map(l => normalizeName(l.client_name || ''))
+    );
+
+    let deliveredCount = 0;
+    const updatedClients = driver.clients.map(client => {
+      const normName = normalizeName(client.name);
+      const isDelivered = driverDeliveredNames.has(normName) || deliveredNames.has(normName);
+      if (isDelivered) deliveredCount++;
+      return {
+        ...client,
+        isDelivered
+      };
+    });
+
+    let status: DriverRouteInfo['status'] = 'sin_iniciar';
+    if (deliveredCount > 0 && deliveredCount < updatedClients.length) {
+      status = 'en_curso';
+    } else if (deliveredCount >= updatedClients.length && updatedClients.length > 0) {
+      status = 'finalizada';
+    }
+
+    const pendingClients = updatedClients.filter(c => !c.isDelivered);
+    const currentClient = pendingClients.length > 0 ? pendingClients[0].name : '';
+    const nextClientOrder = pendingClients.length > 0 ? pendingClients[0].order : 0;
+
+    const completedLogs = driverLogs
+      .filter(l => l.delivered_at)
+      .sort((a, b) => new Date(b.delivered_at).getTime() - new Date(a.delivered_at).getTime());
+
+    const latestLog = completedLogs[0];
+    let anchorClient = null;
+    let anchorTimeMins = 0;
+    let anchorTimeReal: Date | null = null;
+
+    if (latestLog) {
+      anchorClient = updatedClients.find(c => normalizeName(c.name) === normalizeName(latestLog.client_name || ''));
+      if (anchorClient && anchorClient.estimatedTimeMins !== undefined) {
+        anchorTimeMins = anchorClient.estimatedTimeMins;
+        anchorTimeReal = new Date(latestLog.delivered_at);
+      }
+    }
+
+    for (const client of updatedClients) {
+      if (client.isDelivered) {
+        const log = driverLogs.find(l => normalizeName(l.client_name || '') === normalizeName(client.name));
+        if (log && log.delivered_at) {
+          const delTime = new Date(log.delivered_at);
+          const hours = delTime.getHours();
+          const minutes = delTime.getMinutes();
+          const ampm = hours >= 12 ? 'PM' : 'AM';
+          const formattedHours = hours % 12 || 12;
+          const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+          client.estimatedTimeClock = `Entregado: ${formattedHours}:${formattedMinutes} ${ampm}`;
+        }
+      } else if (anchorTimeReal && client.estimatedTimeMins !== undefined) {
+        const deltaMins = Math.max(5, client.estimatedTimeMins - anchorTimeMins);
+        const estimatedTime = new Date(anchorTimeReal.getTime() + deltaMins * 60 * 1000);
+        const hours = estimatedTime.getHours();
+        const minutes = estimatedTime.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const formattedHours = hours % 12 || 12;
+        const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+        client.estimatedTimeClock = `${formattedHours}:${formattedMinutes} ${ampm}`;
+      }
+    }
+
+    const lastDeliveredAt = latestLog?.delivered_at || driver.lastDeliveredAt;
+
+    return {
+      ...driver,
+      deliveredCount,
+      clients: updatedClients,
+      status,
+      currentClient,
+      nextClientOrder,
+      lastDeliveredAt
+    };
+  });
+
+  updatedDrivers.sort((a, b) => {
+    const order = { en_curso: 0, sin_iniciar: 1, finalizada: 2 };
+    return order[a.status] - order[b.status];
+  });
+
+  return updatedDrivers;
+}

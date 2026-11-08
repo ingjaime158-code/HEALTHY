@@ -40,6 +40,54 @@ const DRIVER_COLORS = [
     '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'
 ];
 
+const buildClientTrackingUrl = (driverId: string, order: number, routeType: string, coords?: string, name?: string): string => {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname.replace(/\/$/, '');
+    let url = `${origin}${pathname}/#/entrega?driver=${encodeURIComponent(driverId)}&order=${order}&route=${routeType}`;
+    if (coords) {
+        url += `&dest=${encodeURIComponent(coords.replace(/\s+/g, ''))}`;
+    }
+    if (name) {
+        url += `&name=${encodeURIComponent(name)}`;
+    }
+    return url;
+};
+
+const buildWhatsAppDeliveryMessage = (trackingUrl?: string): string => {
+    if (trackingUrl) {
+        return `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar. Puedes seguir a tu repartidor en tiempo real aquí:\n${trackingUrl}\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`;
+    }
+    return `Hola, buen dia🍏\nSomos el equipo de Reparto de Healthy Dream  🚗💨\n\nComunicamos que su paquete está por llegar.\n\nEn caso de ser colonia privada, agradeceríamos si nos puede compartir algún acceso 🙏🏼\n\nHealthy Dream agradece su preferencia🍓🥦🥩`;
+};
+
+const parsePhoneNumbers = (rawPhone?: string): { display: string; digits: string }[] => {
+    if (!rawPhone) return [];
+    const parts = rawPhone.split(/[&/,;]+|\s+y\s+/i).map(p => p.trim()).filter(Boolean);
+    const results: { display: string; digits: string }[] = [];
+    const seen = new Set<string>();
+
+    for (const part of parts) {
+        let digits = part.replace(/\D/g, '');
+        if (digits.length < 8) continue;
+        if (digits.length === 10) {
+            digits = `52${digits}`;
+        }
+        if (seen.has(digits)) continue;
+        seen.add(digits);
+        results.push({ display: part, digits });
+    }
+
+    if (results.length === 0) {
+        let digits = rawPhone.replace(/\D/g, '');
+        if (digits.length === 10) digits = `52${digits}`;
+        if (digits.length >= 8) {
+            results.push({ display: rawPhone, digits });
+        }
+    }
+
+    return results;
+};
+
 const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
     isDispatchOpen, setIsDispatchOpen,
     selectedRoute, activeTrips, setActiveTrips,
@@ -251,60 +299,96 @@ const DispatchSidebar: React.FC<DispatchSidebarProps> = ({
                                     <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider px-1 mb-1">
                                         {selectedDriverForDetails?.clients?.length || 0} CLIENTES EN RUTA
                                     </p>
-                                    {(selectedDriverForDetails?.clients || []).map((client, cIdx) => {
-                                        const isSelected = selectedClient && (
-                                            selectedClient.name === client.name && 
-                                            (selectedClient.repartidor === client.repartidor || !client.repartidor)
-                                        );
+                                    {(() => {
+                                        const activeDriverId = selectedDriverForDetails?.driverId || drivers.find(d => d.name.toUpperCase().trim() === selectedDriverForDetails?.driverName?.toUpperCase().trim())?.id || '';
 
-                                        return (
-                                        <div 
-                                            key={cIdx} 
-                                            onClick={() => onSelectClient?.(isSelected ? null : client)}
-                                            className={`border rounded-lg p-3 flex items-start gap-3 transition-all cursor-pointer ${
-                                                isSelected 
-                                                    ? 'bg-indigo-600/20 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.25)] ring-1 ring-indigo-400/50' 
-                                                    : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.04]'
-                                            }`}
-                                        >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
-                                                {cIdx + 1}
-                                            </div>
-                                            <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
-                                                <div className="flex items-center gap-2">
-                                                    <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
-                                                        {client.name || 'Cliente sin nombre'}
+                                        return (selectedDriverForDetails?.clients || []).map((client, cIdx) => {
+                                            const isSelected = selectedClient && (
+                                                selectedClient.name === client.name && 
+                                                (selectedClient.repartidor === client.repartidor || !client.repartidor)
+                                            );
+
+                                            return (
+                                            <div 
+                                                key={cIdx} 
+                                                onClick={() => onSelectClient?.(isSelected ? null : client)}
+                                                className={`border rounded-lg p-3 flex items-start gap-3 transition-all cursor-pointer ${
+                                                    isSelected 
+                                                        ? 'bg-indigo-600/20 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.25)] ring-1 ring-indigo-400/50' 
+                                                        : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.04]'
+                                                }`}
+                                            >
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${client.isDelivered ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-gray-700/50 text-gray-300 border border-gray-600/50'}`}>
+                                                    {cIdx + 1}
+                                                </div>
+                                                <div className="min-w-0 flex-1 flex flex-col justify-center min-h-[32px]">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className={`text-sm font-bold truncate ${client.isDelivered ? 'text-gray-400 line-through' : 'text-gray-100'}`}>
+                                                            {client.name || 'Cliente sin nombre'}
+                                                        </p>
+                                                        {client.bags > 0 && !client.isDelivered && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-pink-400 text-[9px] font-black uppercase flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[10px]">shopping_bag</span>
+                                                                {client.bags} {client.bags === 1 ? 'bolsa' : 'bolsas'}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address || 'Ubicación'}>
+                                                        <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
+                                                        {client.address || 'Ubicación de entrega'}
                                                     </p>
-                                                    {client.bags > 0 && !client.isDelivered && (
-                                                        <span className="px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-pink-400 text-[9px] font-black uppercase flex items-center gap-1">
-                                                            <span className="material-symbols-outlined text-[10px]">shopping_bag</span>
-                                                            {client.bags} {client.bags === 1 ? 'bolsa' : 'bolsas'}
-                                                        </span>
+                                                    {!client.isDelivered && (
+                                                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                                            {(client.estimatedTimeClock || client.estimatedTimeMins !== undefined) && (
+                                                                <div className="text-[10px] font-extrabold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1 w-fit shadow-sm shadow-amber-500/5">
+                                                                    <span className="material-symbols-outlined text-[11px] font-black">schedule</span>
+                                                                    Llegada est.: {client.estimatedTimeClock ? client.estimatedTimeClock : `${client.estimatedTimeMins} min`}
+                                                                </div>
+                                                            )}
+
+                                                            {(() => {
+                                                                const phones = parsePhoneNumbers(client.phone);
+                                                                if (phones.length === 0) return null;
+                                                                const trackingUrl = buildClientTrackingUrl(
+                                                                    activeDriverId,
+                                                                    client.order || (cIdx + 1),
+                                                                    selectedRoute || 'evening',
+                                                                    client.coords,
+                                                                    client.name
+                                                                );
+                                                                const waText = buildWhatsAppDeliveryMessage(trackingUrl);
+
+                                                                return phones.map((p, pIdx) => (
+                                                                    <a
+                                                                        key={pIdx}
+                                                                        href={`https://wa.me/${p.digits}?text=${encodeURIComponent(waText)}`}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 text-[10px] font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+                                                                        title={`Enviar WhatsApp con link de rastreo a ${p.display}`}
+                                                                    >
+                                                                        <span className="material-symbols-outlined text-[12px] text-emerald-400">chat</span>
+                                                                        <span>WhatsApp{phones.length > 1 ? ` #${pIdx + 1}` : ''}</span>
+                                                                    </a>
+                                                                ));
+                                                            })()}
+                                                        </div>
+                                                    )}
+                                                    {client.isDelivered && client.estimatedTimeClock && (
+                                                        <div className="text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1 w-fit mt-1 shadow-sm shadow-emerald-500/5">
+                                                            <span className="material-symbols-outlined text-[11px] font-black">task_alt</span>
+                                                            {client.estimatedTimeClock}
+                                                        </div>
                                                     )}
                                                 </div>
-                                                <p className="text-gray-500 text-[10px] truncate flex items-center gap-1 mt-0.5" title={client.address || 'Ubicación'}>
-                                                    <span className="material-symbols-outlined text-[11px] text-red-400">location_on</span>
-                                                    {client.address || 'Ubicación de entrega'}
-                                                </p>
-                                                {!client.isDelivered && (client.estimatedTimeClock || client.estimatedTimeMins !== undefined) && (
-                                                    <div className="text-[10px] font-extrabold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1 w-fit mt-1 shadow-sm shadow-amber-500/5">
-                                                        <span className="material-symbols-outlined text-[11px] font-black">schedule</span>
-                                                        Llegada est.: {client.estimatedTimeClock ? client.estimatedTimeClock : `${client.estimatedTimeMins} min`}
-                                                    </div>
-                                                )}
-                                                {client.isDelivered && client.estimatedTimeClock && (
-                                                    <div className="text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1 w-fit mt-1 shadow-sm shadow-emerald-500/5">
-                                                        <span className="material-symbols-outlined text-[11px] font-black">task_alt</span>
-                                                        {client.estimatedTimeClock}
-                                                    </div>
+                                                {client.isDelivered && (
+                                                    <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
                                                 )}
                                             </div>
-                                            {client.isDelivered && (
-                                                <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 self-center">check_circle</span>
-                                            )}
-                                        </div>
-                                        );
-                                    })}
+                                            );
+                                        });
+                                    })()}
                                 </div>
                             </div>
                         ) : selectedRoute && routeDrivers.length > 0 ? (
