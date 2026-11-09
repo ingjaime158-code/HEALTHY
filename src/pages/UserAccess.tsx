@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getAllowedUsers, addAllowedUser, removeAllowedUser, updateAllowedUserRole, updateAllowedUserViews, updateAllowedUserName, User } from '../services/authService';
+import { getAllowedUsers, addAllowedUser, removeAllowedUser, updateAllowedUserRole, updateAllowedUserViews, updateAllowedUserName, updateAllowedUserFull, User } from '../services/authService';
 import { getBusinesses, Business, getDrivers, Driver } from '../services/dataService';
 
 // All available sidebar views for permission assignment
@@ -32,6 +32,16 @@ const UserAccess = () => {
     const [savingViews, setSavingViews] = useState(false);
     const [editingNameFor, setEditingNameFor] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
+
+    // State para modal de edición de parámetros y credenciales
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [editName, setEditName] = useState('');
+    const [editEmail, setEditEmail] = useState('');
+    const [editPassword, setEditPassword] = useState('');
+    const [showEditPassword, setShowEditPassword] = useState(false);
+    const [editRole, setEditRole] = useState<'Administrador' | 'Usuario' | 'Chofer'>('Usuario');
+    const [editDriverId, setEditDriverId] = useState('');
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
 
     useEffect(() => {
         const init = async () => {
@@ -175,6 +185,60 @@ const UserAccess = () => {
         }
         setEditingNameFor(null);
         setTimeout(() => setNotification(null), 3000);
+    };
+
+    const handleOpenEditModal = (user: User) => {
+        setEditingUser(user);
+        setEditName(user.name || '');
+        setEditEmail(user.email || '');
+        setEditPassword('');
+        setShowEditPassword(false);
+        setEditRole(user.role || 'Usuario');
+        setEditDriverId(user.driverId || '');
+    };
+
+    const handleSaveEditUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingUser) return;
+        if (!editEmail.trim()) {
+            setNotification({ msg: 'El correo/usuario de login es requerido.', type: 'error' });
+            setTimeout(() => setNotification(null), 3000);
+            return;
+        }
+        if (editRole === 'Chofer' && !editDriverId) {
+            setNotification({ msg: 'Debe asignar un repartidor para el rol Chofer.', type: 'error' });
+            setTimeout(() => setNotification(null), 3000);
+            return;
+        }
+        if (editPassword.trim() && editPassword.trim().length < 6) {
+            setNotification({ msg: 'La nueva contraseña debe tener al menos 6 caracteres.', type: 'error' });
+            setTimeout(() => setNotification(null), 3000);
+            return;
+        }
+
+        setIsSavingEdit(true);
+        try {
+            const res = await updateAllowedUserFull(editingUser.email, {
+                newName: editName,
+                newEmail: editEmail,
+                newPassword: editPassword.trim() || undefined,
+                newRole: editRole,
+                newDriverId: editRole === 'Chofer' ? editDriverId : undefined,
+            });
+
+            if (res.success) {
+                setNotification({ msg: res.message || 'Usuario actualizado correctamente.', type: 'success' });
+                setEditingUser(null);
+                await refreshUsers();
+            } else {
+                setNotification({ msg: res.message || 'Error al actualizar usuario.', type: 'error' });
+            }
+        } catch (err: any) {
+            setNotification({ msg: err?.message || 'Error al guardar los cambios.', type: 'error' });
+        } finally {
+            setIsSavingEdit(false);
+            setTimeout(() => setNotification(null), 5000);
+        }
     };
 
     const handleExportCSV = () => {
@@ -335,9 +399,9 @@ const UserAccess = () => {
                                                             <>
                                                                 <p className="text-[#111118] text-sm font-bold">{user.name || <span className="text-gray-400 italic font-normal">Sin nombre</span>}</p>
                                                                 <button
-                                                                    onClick={() => { setEditingNameFor(user.email); setEditingNameValue(user.name || ''); }}
-                                                                    className="text-gray-400 hover:text-blue-600 p-0.5 rounded transition-colors"
-                                                                    title="Editar nombre"
+                                                                    onClick={() => handleOpenEditModal(user)}
+                                                                    className="text-gray-400 hover:text-indigo-600 p-0.5 rounded transition-colors"
+                                                                    title="Editar parámetros y credenciales"
                                                                 >
                                                                     <span className="material-symbols-outlined text-[14px]">edit</span>
                                                                 </button>
@@ -364,6 +428,14 @@ const UserAccess = () => {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleOpenEditModal(user)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all bg-gray-50 text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 border border-gray-200"
+                                                    title="Editar Parámetros y Credenciales"
+                                                >
+                                                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                                                    Editar
+                                                </button>
                                                 {user.role !== 'Administrador' && user.role !== 'Chofer' && (
                                                     <button
                                                         onClick={() => editingViewsFor === user.email ? setEditingViewsFor(null) : handleOpenViewEditor(user)}
@@ -454,6 +526,157 @@ const UserAccess = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Modal de Edición Completa de Usuario y Credenciales */}
+            {editingUser && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                        {/* Modal Header */}
+                        <div className="px-6 py-5 bg-gradient-to-r from-gray-50 to-indigo-50/40 border-b border-gray-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                                    <span className="material-symbols-outlined text-[22px]">manage_accounts</span>
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-gray-900">Editar Usuario y Credenciales</h3>
+                                    <p className="text-xs text-gray-500">Actualiza datos de login, contraseña y permisos</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setEditingUser(null)}
+                                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[20px]">close</span>
+                            </button>
+                        </div>
+
+                        {/* Modal Form */}
+                        <form onSubmit={handleSaveEditUser} className="p-6 space-y-4">
+                            {/* Nombre */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Nombre Completo
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="Ej. Valeria Gómez"
+                                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 bg-gray-50/50 hover:bg-white transition-all"
+                                />
+                            </div>
+
+                            {/* Correo / Usuario para login */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                    <span>Correo / Usuario de Login</span>
+                                    <span className="text-indigo-600 text-[10px] lowercase font-normal">(usuario para iniciar sesión)</span>
+                                </label>
+                                <div className="relative">
+                                    <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-[18px] text-gray-400">alternate_email</span>
+                                    <input
+                                        type="email"
+                                        value={editEmail}
+                                        onChange={(e) => setEditEmail(e.target.value)}
+                                        placeholder="usuario@healthydreams.com"
+                                        required
+                                        className="w-full rounded-xl border border-gray-200 pl-10 pr-3.5 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 bg-gray-50/50 hover:bg-white transition-all"
+                                    />
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-1">Si cambias este correo, el usuario deberá usar este nuevo valor para hacer login.</p>
+                            </div>
+
+                            {/* Nueva Contraseña */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <span>Nueva Contraseña</span>
+                                    <span className="text-amber-600 text-[10px] font-normal">Opcional (mín. 6 caracteres)</span>
+                                </label>
+                                <div className="relative">
+                                    <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-[18px] text-gray-400">lock</span>
+                                    <input
+                                        type={showEditPassword ? 'text' : 'password'}
+                                        value={editPassword}
+                                        onChange={(e) => setEditPassword(e.target.value)}
+                                        placeholder="Dejar en blanco para no modificarla"
+                                        minLength={6}
+                                        className="w-full rounded-xl border border-gray-200 pl-10 pr-10 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 bg-gray-50/50 hover:bg-white transition-all"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEditPassword(!showEditPassword)}
+                                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                                        title={showEditPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                                    >
+                                        <span className="material-symbols-outlined text-[18px]">
+                                            {showEditPassword ? 'visibility_off' : 'visibility'}
+                                        </span>
+                                    </button>
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-1">Escribe aquí solo si deseas cambiar o resetear la contraseña del usuario.</p>
+                            </div>
+
+                            {/* Rol */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Rol de Acceso
+                                </label>
+                                <select
+                                    value={editRole}
+                                    onChange={(e) => setEditRole(e.target.value as any)}
+                                    className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 bg-gray-50/50 hover:bg-white transition-all"
+                                >
+                                    <option value="Usuario">Usuario (Permisos por vista)</option>
+                                    <option value="Administrador">Administrador (Acceso total)</option>
+                                    <option value="Chofer">Chofer (Acceso a repartos)</option>
+                                </select>
+                            </div>
+
+                            {/* Chofer asignado si el rol es Chofer */}
+                            {editRole === 'Chofer' && (
+                                <div className="p-3 bg-cyan-50/60 rounded-xl border border-cyan-100">
+                                    <label className="block text-xs font-bold text-cyan-900 uppercase tracking-wider mb-1.5">
+                                        Repartidor Vinculado *
+                                    </label>
+                                    <select
+                                        value={editDriverId}
+                                        onChange={(e) => setEditDriverId(e.target.value)}
+                                        required
+                                        className="w-full rounded-lg border border-cyan-200 px-3 py-2 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-600 bg-white"
+                                    >
+                                        <option value="">-- Seleccionar Chofer --</option>
+                                        {drivers.map(d => (
+                                            <option key={d.id} value={d.id}>{d.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Modal Actions */}
+                            <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingUser(null)}
+                                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSavingEdit}
+                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">
+                                        {isSavingEdit ? 'hourglass_empty' : 'save'}
+                                    </span>
+                                    {isSavingEdit ? 'Guardando...' : 'Guardar Cambios'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

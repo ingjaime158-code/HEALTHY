@@ -167,6 +167,100 @@ export const updateAllowedUserName = async (email: string, name: string): Promis
     return true;
 };
 
+export interface UpdateUserData {
+    newEmail?: string;
+    newPassword?: string;
+    newName?: string;
+    newRole?: 'Administrador' | 'Usuario' | 'Chofer';
+    newDriverId?: string;
+}
+
+export const updateAllowedUserFull = async (
+    oldEmail: string,
+    data: UpdateUserData
+): Promise<{ success: boolean; message?: string }> => {
+    const cleanOldEmail = oldEmail.trim().toLowerCase();
+    const cleanNewEmail = data.newEmail ? data.newEmail.trim().toLowerCase() : cleanOldEmail;
+
+    // 1. Intentar mediante RPC con privilegios SECURITY DEFINER para actualizar auth.users y allowed_users
+    try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('admin_update_user_credentials', {
+            p_old_email: cleanOldEmail,
+            p_new_email: cleanNewEmail,
+            p_new_password: data.newPassword && data.newPassword.trim().length >= 6 ? data.newPassword.trim() : null,
+            p_new_name: data.newName !== undefined ? data.newName.trim() : null,
+            p_new_role: data.newRole || null,
+            p_new_driver_id: data.newRole === 'Chofer' ? (data.newDriverId || null) : null,
+        });
+
+        if (!rpcError && rpcData?.success) {
+            // Actualizar sesión local si el usuario modificado es el actual
+            const currentLogged = getCurrentUser();
+            if (currentLogged && currentLogged.toLowerCase() === cleanOldEmail) {
+                if (cleanNewEmail) localStorage.setItem('hd_current_user', cleanNewEmail);
+                if (data.newName) localStorage.setItem('hd_user_name', data.newName.trim());
+                if (data.newRole) localStorage.setItem('hd_user_role', data.newRole);
+            }
+            invalidateRoleCache();
+            return { success: true, message: rpcData.message || 'Usuario y credenciales actualizados correctamente.' };
+        }
+
+        if (rpcError) {
+            console.warn('[updateAllowedUserFull] RPC error o no instalada:', rpcError.message);
+            // Si el error fue de validación explícita (ej. email duplicado o falta de permisos)
+            if (rpcError.message.includes('ya se encuentra registrado') || rpcError.message.includes('Permiso denegado')) {
+                return { success: false, message: rpcError.message };
+            }
+        }
+    } catch (err: any) {
+        console.warn('[updateAllowedUserFull] Llamada RPC falló, usando fallback:', err);
+    }
+
+    // 2. Fallback directo sobre tabla allowed_users
+    try {
+        const updatePayload: any = {};
+        if (data.newName !== undefined) updatePayload.name = data.newName.trim() || null;
+        if (data.newRole) updatePayload.role = data.newRole;
+        if (data.newRole === 'Chofer') {
+            updatePayload.driver_id = data.newDriverId || null;
+        } else if (data.newRole) {
+            updatePayload.driver_id = null;
+        }
+        if (cleanNewEmail !== cleanOldEmail) {
+            updatePayload.email = cleanNewEmail;
+        }
+
+        const { error: dbError } = await supabase
+            .from('allowed_users')
+            .update(updatePayload)
+            .ilike('email', cleanOldEmail);
+
+        if (dbError) {
+            return { success: false, message: `Error al actualizar en base de datos: ${dbError.message}` };
+        }
+
+        const currentLogged = getCurrentUser();
+        if (currentLogged && currentLogged.toLowerCase() === cleanOldEmail) {
+            if (cleanNewEmail) localStorage.setItem('hd_current_user', cleanNewEmail);
+            if (data.newName) localStorage.setItem('hd_user_name', data.newName.trim());
+            if (data.newRole) localStorage.setItem('hd_user_role', data.newRole);
+        }
+
+        invalidateRoleCache();
+
+        if (data.newPassword && data.newPassword.trim().length >= 6) {
+            return {
+                success: true,
+                message: 'Datos actualizados en la lista. Aviso: Para sincronizar la contraseña en el login de Supabase Auth, ejecute el script SQL ADMIN_USER_MANAGEMENT_RPC.sql en Supabase.'
+            };
+        }
+
+        return { success: true, message: 'Usuario actualizado correctamente.' };
+    } catch (err: any) {
+        return { success: false, message: err?.message || 'Error inesperado al actualizar usuario.' };
+    }
+};
+
 export const removeAllowedUser = async (email: string): Promise<void> => {
     const { error } = await supabase.from('allowed_users').delete().ilike('email', email);
     if (error) console.error("Error removing user from db:", error);
