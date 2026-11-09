@@ -55,23 +55,37 @@ export const ClientLiveTracking: React.FC = () => {
         return null;
     }, [destParam]);
 
-    // Clave persistente en localStorage para retener de forma permanente el estado de entrega
+    // Fecha operativa de la entrega (por defecto hoy en zona horaria Monterrey/CDMX)
+    const today = useMemo(() => {
+        return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    }, []);
+
+    const effectiveDate = useMemo(() => {
+        if (dateParam && dateParam.trim()) return dateParam.trim();
+        return today;
+    }, [dateParam, today]);
+
+    // Clave persistente en localStorage aislada por fecha para evitar falsos positivos de entregas de días previos
     const terminalStorageKey = useMemo(() => {
         if (!driverId) return '';
         const cleanName = (clientNameParam || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return `hd_tracking_latch_${driverId}_${clientOrder}_${routeType}${cleanName ? `_${cleanName}` : ''}`;
-    }, [driverId, clientOrder, routeType, clientNameParam]);
+        return `hd_tracking_latch_${driverId}_${clientOrder}_${routeType}_${effectiveDate}${cleanName ? `_${cleanName}` : ''}`;
+    }, [driverId, clientOrder, routeType, effectiveDate, clientNameParam]);
 
-    // Verificar si ya fue finalizado previamente en este dispositivo
+    // Verificar si ya fue finalizado previamente en este dispositivo para la fecha actual
     const initialTerminalState = useMemo<TrackingState | null>(() => {
         if (!terminalStorageKey) return null;
         try {
             const raw = localStorage.getItem(terminalStorageKey);
             if (raw) {
                 const saved = JSON.parse(raw);
+                // Si el registro guardado pertenece a una fecha distinta, descartarlo
+                if (saved.deliveryDate && saved.deliveryDate !== effectiveDate) {
+                    return null;
+                }
                 const savedTime = new Date(saved.deliveredAt || saved.savedAt || 0).getTime();
-                // Mantener el pestillo activo por 48 horas tras la entrega
-                if (Date.now() - savedTime < 48 * 60 * 60 * 1000) {
+                // Mantener el candado activo durante las 18 horas posteriores a la entrega de ese día
+                if (Date.now() - savedTime < 18 * 60 * 60 * 1000) {
                     return {
                         isDelivered: true,
                         deliveredAt: saved.deliveredAt || new Date().toISOString(),
@@ -86,7 +100,7 @@ export const ClientLiveTracking: React.FC = () => {
             }
         } catch {}
         return null;
-    }, [terminalStorageKey, clientNameParam]);
+    }, [terminalStorageKey, effectiveDate, clientNameParam]);
 
     const [tracking, setTracking] = useState<TrackingState | null>(() => initialTerminalState);
     const [loading, setLoading] = useState<boolean>(() => !initialTerminalState);
@@ -123,6 +137,7 @@ export const ClientLiveTracking: React.FC = () => {
                     deliveredAt: payload.deliveredAt || new Date().toISOString(),
                     driverName: payload.driverName,
                     clientName: payload.clientName,
+                    deliveryDate: effectiveDate,
                     savedAt: new Date().toISOString(),
                 }));
             } catch {}
@@ -162,7 +177,7 @@ export const ClientLiveTracking: React.FC = () => {
             lastUpdated: payload.deliveredAt || new Date().toISOString(),
         });
         setLoading(false);
-    }, [terminalStorageKey, clientNameParam]);
+    }, [terminalStorageKey, effectiveDate, clientNameParam]);
 
     // Fetch tracking status from Supabase
     const fetchTracking = useCallback(async () => {
@@ -173,12 +188,16 @@ export const ClientLiveTracking: React.FC = () => {
             return;
         }
 
-        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+        // Si el enlace incluye una fecha explícita (date), validar ÚNICAMENTE esa fecha para evitar
+        // falsos positivos donde una entrega de ayer bloquee el reparto de hoy.
+        const currentHour = new Date().getHours();
+        const isLateNightCrossover = !dateParam && currentHour < 4;
         const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const yesterday = yesterdayDate.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
-        // Probar fecha actual y de ayer para blindar cambios de fecha a medianoche (00:00)
-        const datesToTry = dateParam ? [dateParam, today, yesterday] : [today, yesterday];
+        const datesToTry = dateParam && dateParam.trim()
+            ? [dateParam.trim()]
+            : (isLateNightCrossover ? [today, yesterday] : [today]);
 
         try {
             for (const testDate of datesToTry) {
@@ -206,12 +225,12 @@ export const ClientLiveTracking: React.FC = () => {
 
             if (isDeliveredRef.current) return;
 
-            // Si no fue entregado en ninguna de las fechas, obtener ubicación del chofer activa
+            // Si no fue entregado en la fecha correspondiente, obtener ubicación del chofer activa
             const { data: firstCheck } = await supabase.rpc('get_public_delivery_tracking', {
                 p_driver_id: driverId,
                 p_client_order: clientOrder,
                 p_route_type: routeType,
-                p_delivery_date: dateParam || today,
+                p_delivery_date: effectiveDate,
             });
 
             if (isDeliveredRef.current) return;
