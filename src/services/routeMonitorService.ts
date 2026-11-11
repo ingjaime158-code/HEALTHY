@@ -83,7 +83,7 @@ function parseCsvContent(text: string): string[][] {
 // ── Convert Google Sheets URL to CSV export URL ──────────────────────────────
 
 function getSheetCsvUrl(sheetId: string, gid: string): string {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&tcb=${Date.now()}`;
 }
 
 /**

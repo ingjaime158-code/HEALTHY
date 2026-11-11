@@ -12,6 +12,7 @@ import {
   parseClientProfile,
   serializeClientProfile,
   serializeClientPlansProfile,
+  applyProfileToBusiness,
   parseCoordinates,
   PLAN_OPTIONS,
   SIGLAS_OPTIONS,
@@ -101,20 +102,11 @@ const ClientManager: React.FC = () => {
   // Processed list of clients to avoid duplicate JSON parsing
   const parsedClients = useMemo(() => {
     return dbClients.map(biz => {
-      let exclusions = 'Ninguna';
-      let driver = 'SIN ASIGNAR';
-      let isActive = true;
-      let routeOrder = 9999;
-
-      if (biz.email && biz.email.startsWith('{') && biz.email.endsWith('}')) {
-        try {
-          const parsed = JSON.parse(biz.email);
-          exclusions = parsed.exclusions || 'Ninguna';
-          driver = parsed.driver || 'SIN ASIGNAR';
-          isActive = parsed.isActive !== false;
-          routeOrder = parsed.routeOrder !== undefined ? Number(parsed.routeOrder) : 9999;
-        } catch (e) {}
-      }
+      const profile = parseClientProfile(biz);
+      const exclusions = profile.exclusions || 'Ninguna';
+      const driver = profile.driver || 'SIN ASIGNAR';
+      const isActive = profile.isActive !== false;
+      const routeOrder = profile.routeOrder !== undefined ? Number(profile.routeOrder) : 9999;
 
       const plans = getNormalizedClientPlans(biz.email, biz.name);
       const subNames = splitClientNames(biz.name);
@@ -645,14 +637,11 @@ const ClientManager: React.FC = () => {
           const biz = dbClients.find(c => c.id === stop.id);
           if (!biz) continue;
 
-          const currentConfig = parseClientProfile(biz.email);
+          const currentConfig = parseClientProfile(biz);
           currentConfig.routeOrder = index + 1;
           const updatedEmail = JSON.stringify(currentConfig);
 
-          sequenceBatch.push({
-            ...biz,
-            email: updatedEmail
-          });
+          sequenceBatch.push(applyProfileToBusiness(biz, updatedEmail));
         }
 
         if (sequenceBatch.length > 0) {
@@ -786,14 +775,11 @@ const ClientManager: React.FC = () => {
         const biz = dbClients.find(c => c.id === stop.id);
         if (!biz) continue;
         
-        const currentConfig = parseClientProfile(biz.email);
+        const currentConfig = parseClientProfile(biz);
         currentConfig.routeOrder = index + 1; // 1-indexed
         const updatedEmail = JSON.stringify(currentConfig);
         
-        businessesToUpdate.push({
-          ...biz,
-          email: updatedEmail
-        });
+        businessesToUpdate.push(applyProfileToBusiness(biz, updatedEmail));
       }
 
       if (businessesToUpdate.length > 0) {
@@ -935,10 +921,7 @@ const ClientManager: React.FC = () => {
       const updatedEmail = serializeClientProfile(biz.email, updates);
 
       // Save atomically using the Zustand store (optimistic update and automatic sync!)
-      await updateClientInStore({
-        ...biz,
-        email: updatedEmail
-      });
+      await updateClientInStore(applyProfileToBusiness(biz, updatedEmail));
     } catch (err) {
       console.error("Error updating client config:", err);
     } finally {
@@ -972,10 +955,7 @@ const ClientManager: React.FC = () => {
       const updatedBreakdown = calculateBagsBreakdown(updatedEmail, biz.name, currentDayIndex);
       const parsedUpdated = parseClientProfile(updatedEmail);
 
-      const success = await updateClientInStore({
-        ...biz,
-        email: updatedEmail
-      });
+      const success = await updateClientInStore(applyProfileToBusiness(biz, updatedEmail));
 
       if (!success) {
         showFeedbackToast('❌ Error al actualizar el plan del cliente en la base de datos.');
@@ -1038,15 +1018,13 @@ const ClientManager: React.FC = () => {
         const updatedEmail = JSON.stringify(config);
 
         // Find index in main list and update
+        const updatedBiz = applyProfileToBusiness(biz, updatedEmail);
         const idx = updatedClients.findIndex(c => c.id === biz.id);
         if (idx !== -1) {
-          updatedClients[idx].email = updatedEmail;
+          updatedClients[idx] = updatedBiz;
         }
 
-        batchList.push({
-          ...biz,
-          email: updatedEmail
-        });
+        batchList.push(updatedBiz);
 
         // Notify Google Sheet Webhook
         pushToGoogleSheets(biz.routeType as 'Matutina' | 'Vespertina', {
@@ -1314,9 +1292,78 @@ const ClientManager: React.FC = () => {
 
       let newCount = 0;
       let updatedCount = 0;
+      let failedInserts = 0;
       const batchUpdates: Business[] = [];
+      const claimedOtherRouteIds = new Set<string>();
 
       const driverNames = systemDrivers.map(d => d.name.toUpperCase().trim());
+
+      const buildUpdatedMatchedClient = (
+        dbClient: Business,
+        sheetClient: typeof sheetClients[number],
+        lat: number,
+        lng: number,
+        finalDriver: string,
+        forceRouteType?: 'Matutina' | 'Vespertina'
+      ): Business | null => {
+        const dbConfig = parseClientProfile(dbClient);
+
+        const nextPlanType = sheetClient.planType || dbConfig.planType || 'HEALTHY';
+        const statusChanged = dbConfig.isActive !== sheetClient.isActive;
+        const routeChanged = Boolean(forceRouteType && dbClient.routeType !== forceRouteType);
+        const phoneChanged = (dbClient.phone || '') !== sheetClient.phone;
+        const addressChanged = (dbClient.location || '') !== sheetClient.address;
+        const isSheetLinkValid = Boolean(sheetClient.locationLink && sheetClient.locationLink.startsWith('http'));
+        const linkChanged = isSheetLinkValid && (dbClient.locationLink || '') !== sheetClient.locationLink;
+        const hasSheetCoords = lat !== 0 || lng !== 0;
+        const coordsChanged = hasSheetCoords && (Math.abs(dbClient.lat - lat) > 0.0001 || Math.abs(dbClient.lng - lng) > 0.0001);
+        const driverChanged = dbConfig.driver !== finalDriver;
+        const planChanged = Boolean(sheetClient.planType) && dbConfig.planType !== sheetClient.planType;
+        const tiemposChanged = dbConfig.tiempos !== sheetClient.tiempos;
+        const exclusionsChanged = dbConfig.exclusions !== sheetClient.exclusions;
+        const bagsChanged = dbConfig.plansCount !== sheetClient.bags;
+
+        if (!(statusChanged || routeChanged || phoneChanged || addressChanged || linkChanged || coordsChanged || driverChanged || planChanged || tiemposChanged || exclusionsChanged || bagsChanged)) {
+          return null;
+        }
+
+        dbConfig.isActive = sheetClient.isActive;
+        dbConfig.driver = finalDriver;
+        dbConfig.planType = nextPlanType;
+        dbConfig.tiempos = sheetClient.tiempos || dbConfig.tiempos;
+        dbConfig.exclusions = sheetClient.exclusions !== undefined ? sheetClient.exclusions : dbConfig.exclusions;
+        dbConfig.plansCount = sheetClient.bags !== undefined ? sheetClient.bags : dbConfig.plansCount;
+
+        if (planChanged || tiemposChanged || routeChanged) {
+          const subNames = splitClientNames(sheetClient.name || dbClient.name);
+          const defaultSiglas = PACKAGE_SIGLAS[nextPlanType] || (sheetClient.tiempos === 3 ? 'D+C+C' : sheetClient.tiempos === 2 ? 'C+C' : 'C');
+          const sigConfig = getSiglasConfig(defaultSiglas);
+          const normalizedPlans: PlanItem[] = (subNames.length > 0 ? subNames : [sheetClient.name]).map((subName, idx) => ({
+            id: `plan-${idx + 1}`,
+            clientName: subName,
+            planType: nextPlanType.toUpperCase(),
+            package: sigConfig.package,
+            siglas: sigConfig.siglas,
+            tiempos: sigConfig.tiempos
+          }));
+          dbConfig.siglas = normalizedPlans.map(p => p.siglas).join(' + ');
+          dbConfig.package = normalizedPlans.map(p => p.package).join(' + ');
+          dbConfig.plansCount = normalizedPlans.length;
+          dbConfig.tiempos = normalizedPlans.reduce((sum, p) => sum + p.tiempos, 0);
+          dbConfig.plans = normalizedPlans;
+        }
+
+        const updatedEmail = JSON.stringify(dbConfig);
+
+        return applyProfileToBusiness(dbClient, updatedEmail, {
+          routeType: forceRouteType || dbClient.routeType,
+          phone: sheetClient.phone || dbClient.phone,
+          location: sheetClient.address || dbClient.location,
+          locationLink: isSheetLinkValid ? sheetClient.locationLink : dbClient.locationLink,
+          lat: hasSheetCoords ? lat : dbClient.lat,
+          lng: hasSheetCoords ? lng : dbClient.lng
+        });
+      };
 
       for (const sheetClient of sheetClients) {
         const normalizedSheetName = normalizeName(sheetClient.name);
@@ -1348,63 +1395,15 @@ const ClientManager: React.FC = () => {
         }
 
         if (matchedDbClient) {
-          const dbConfig = parseClientProfile(matchedDbClient.email);
-
-          const statusChanged = dbConfig.isActive !== sheetClient.isActive;
-          const phoneChanged = (matchedDbClient.phone || '') !== sheetClient.phone;
-          const addressChanged = (matchedDbClient.location || '') !== sheetClient.address;
-          const isSheetLinkValid = sheetClient.locationLink && sheetClient.locationLink.startsWith('http');
-          const linkChanged = isSheetLinkValid && (matchedDbClient.locationLink || '') !== sheetClient.locationLink;
-          const coordsChanged = Math.abs(matchedDbClient.lat - lat) > 0.0001 || Math.abs(matchedDbClient.lng - lng) > 0.0001;
-          const driverChanged = dbConfig.driver !== finalDriver;
-          const planChanged = dbConfig.planType !== sheetClient.planType;
-          const tiemposChanged = dbConfig.tiempos !== sheetClient.tiempos;
-          const exclusionsChanged = dbConfig.exclusions !== sheetClient.exclusions;
-          const bagsChanged = dbConfig.plansCount !== sheetClient.bags;
-
-          if (statusChanged || phoneChanged || addressChanged || linkChanged || coordsChanged || driverChanged || planChanged || tiemposChanged || exclusionsChanged || bagsChanged) {
-            dbConfig.isActive = sheetClient.isActive;
-            dbConfig.driver = finalDriver;
-            dbConfig.planType = sheetClient.planType !== undefined ? sheetClient.planType : dbConfig.planType;
-            dbConfig.tiempos = sheetClient.tiempos || dbConfig.tiempos;
-            dbConfig.exclusions = sheetClient.exclusions !== undefined ? sheetClient.exclusions : dbConfig.exclusions;
-            dbConfig.plansCount = sheetClient.bags !== undefined ? sheetClient.bags : dbConfig.plansCount;
-            
-            if (planChanged || tiemposChanged) {
-              const subNames = splitClientNames(sheetClient.name || matchedDbClient.name);
-              const defaultSiglas = PACKAGE_SIGLAS[sheetClient.planType] || (sheetClient.tiempos === 3 ? 'D+C+C' : sheetClient.tiempos === 2 ? 'C+C' : 'C');
-              const sigConfig = getSiglasConfig(defaultSiglas);
-              const normalizedPlans: PlanItem[] = (subNames.length > 0 ? subNames : [sheetClient.name]).map((subName, idx) => ({
-                id: `plan-${idx + 1}`,
-                clientName: subName,
-                planType: (sheetClient.planType || 'HEALTHY').toUpperCase(),
-                package: sigConfig.package,
-                siglas: sigConfig.siglas,
-                tiempos: sigConfig.tiempos
-              }));
-              dbConfig.siglas = normalizedPlans.map(p => p.siglas).join(' + ');
-              dbConfig.package = normalizedPlans.map(p => p.package).join(' + ');
-              dbConfig.plansCount = normalizedPlans.length;
-              dbConfig.tiempos = normalizedPlans.reduce((sum, p) => sum + p.tiempos, 0);
-              dbConfig.plans = normalizedPlans;
-            }
-
-            const updatedEmail = JSON.stringify(dbConfig);
-
-            batchUpdates.push({
-              ...matchedDbClient,
-              phone: sheetClient.phone || matchedDbClient.phone,
-              location: sheetClient.address || matchedDbClient.location,
-              locationLink: isSheetLinkValid ? sheetClient.locationLink : matchedDbClient.locationLink,
-              lat: lat || matchedDbClient.lat,
-              lng: lng || matchedDbClient.lng,
-              email: updatedEmail
-            });
+          const updatedObj = buildUpdatedMatchedClient(matchedDbClient, sheetClient, lat, lng, finalDriver);
+          if (updatedObj) {
+            batchUpdates.push(updatedObj);
             updatedCount++;
           }
         } else {
-          // Si el cliente no está en la ruta seleccionada, verificar si ya existe en la otra ruta en la BD
+          // Si el cliente no está en la ruta seleccionada, verificar si existe en otra ruta o sin ruta asignada
           const existsInAnyRoute = latestDbClients.find(c => {
+            if (claimedOtherRouteIds.has(c.id)) return false;
             const cName = normalizeName(c.name);
             if (cName !== normalizedSheetName) return false;
             const cAddr = normalizeAddress(c.location || '');
@@ -1413,8 +1412,25 @@ const ClientManager: React.FC = () => {
           });
 
           if (existsInAnyRoute) {
-            console.log(`[GoogleSheetsSync] Cliente "${sheetClient.name}" ya existe registrado en la BD en Ruta ${existsInAnyRoute.routeType}. Omitiendo creación duplicada.`);
-            continue;
+            // Para registros inactivos, evitar duplicar clientes que pertenecen a la otra ruta
+            if (!sheetClient.isActive) {
+              console.log(`[GoogleSheetsSync] Cliente inactivo "${sheetClient.name}" ya existe en la BD en Ruta ${existsInAnyRoute.routeType}. Omitiendo duplicado.`);
+              continue;
+            }
+
+            // Si está en la pestaña ACTIVA de la ruta seleccionada y el registro existente no tiene ruta o está inactivo,
+            // transferirlo y reactivarlo en la ruta seleccionada en lugar de omitirlo.
+            const otherConfig = parseClientProfile(existsInAnyRoute);
+            if (!existsInAnyRoute.routeType || otherConfig.isActive === false) {
+              const transferred = buildUpdatedMatchedClient(existsInAnyRoute, sheetClient, lat, lng, finalDriver, selectedRoute);
+              if (transferred) {
+                batchUpdates.push(transferred);
+                claimedOtherRouteIds.add(existsInAnyRoute.id);
+                updatedCount++;
+              }
+              continue;
+            }
+            // Si está activo en la otra ruta, crear el registro independiente para la ruta actual para no perderlo aquí.
           }
 
           const subNames = splitClientNames(sheetClient.name);
@@ -1444,19 +1460,25 @@ const ClientManager: React.FC = () => {
 
           const newEmail = JSON.stringify(newConfig);
 
-          await addBusiness({
-            name: sheetClient.name,
-            type: 'Other',
-            location: sheetClient.address,
-            lat: lat,
-            lng: lng,
-            phone: sheetClient.phone,
-            email: newEmail,
-            rfc: '',
-            routeType: selectedRoute,
-            locationLink: sheetClient.locationLink
-          });
-          newCount++;
+          try {
+            await addBusiness({
+              name: sheetClient.name,
+              type: 'Other',
+              location: sheetClient.address,
+              lat: lat,
+              lng: lng,
+              phone: sheetClient.phone,
+              email: newEmail,
+              rfc: '',
+              routeType: selectedRoute,
+              locationLink: sheetClient.locationLink,
+              ...newConfig
+            });
+            newCount++;
+          } catch (insertErr) {
+            failedInserts++;
+            console.error(`[GoogleSheetsSync] Error inserting "${sheetClient.name}":`, insertErr);
+          }
         }
       }
 
@@ -1484,7 +1506,7 @@ const ClientManager: React.FC = () => {
         const deactivationBatch: Business[] = [];
 
         for (const dbc of activeRouteDbClientsCurrent) {
-          let dbConfig = parseClientProfile(dbc.email);
+          const dbConfig = parseClientProfile(dbc);
           const isActiveInDb = dbConfig.isActive !== false;
 
           if (isActiveInDb) {
@@ -1501,10 +1523,7 @@ const ClientManager: React.FC = () => {
 
             if (!hasExactActive && !hasAnyActiveWithName) {
               dbConfig.isActive = false;
-              deactivationBatch.push({
-                ...dbc,
-                email: JSON.stringify(dbConfig)
-              });
+              deactivationBatch.push(applyProfileToBusiness(dbc, JSON.stringify(dbConfig)));
               autoritativeDeactivated++;
             }
           }
@@ -1525,6 +1544,9 @@ const ClientManager: React.FC = () => {
       let toastMsg = `✅ ¡Sincronización exitosa! +${newCount} nuevos, *${updatedCount} actualizados.`;
       if (autoritativeDeactivated > 0) {
         toastMsg += ` Se desactivaron ${autoritativeDeactivated} clientes removidos de Excel.`;
+      }
+      if (failedInserts > 0) {
+        toastMsg += ` (⚠ ${failedInserts} no pudieron insertarse; revisa la consola).`;
       }
       showFeedbackToast(toastMsg);
     } catch (e: any) {
@@ -1895,8 +1917,7 @@ const ClientManager: React.FC = () => {
       accessQr: modalAccessQr.trim()
     };
 
-    const updatedClientObject: Business = {
-      ...editingClient,
+    const updatedClientObject: Business = applyProfileToBusiness(editingClient, JSON.stringify(updatedConfig), {
       name: finalName,
       phone: finalPhone,
       location: finalLocation,
@@ -1905,9 +1926,8 @@ const ClientManager: React.FC = () => {
       locationLink: finalLocationLink,
       routeType: finalRouteType,
       accessCode: modalAccessCode.trim(),
-      accessQr: modalAccessQr.trim(),
-      email: JSON.stringify(updatedConfig)
-    };
+      accessQr: modalAccessQr.trim()
+    });
 
     // Save atomically in Supabase & Zustand store
     const success = await updateClientInStore(updatedClientObject);
@@ -1983,6 +2003,7 @@ const ClientManager: React.FC = () => {
         <div className="flex items-center gap-3">
           <button 
             onClick={refreshData}
+            title="Recargar clientes desde la base de datos (para traer cambios de la hoja de cálculo usa 'Sincronizar con Excel')"
             className="flex items-center gap-2 px-5 py-3 bg-slate-900 border border-slate-800 hover:bg-black text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-md transition-all hover:-translate-y-0.5"
           >
             <span className="material-symbols-outlined text-[18px]">sync</span>
@@ -3632,10 +3653,7 @@ const ClientManager: React.FC = () => {
                       routeOrder: i + 1
                     }
                   });
-                  aiBatchUpdates.push({
-                    ...matchDb,
-                    email: updatedEmail
-                  });
+                  aiBatchUpdates.push(applyProfileToBusiness(matchDb, updatedEmail));
                   updatedCount++;
                 }
               }

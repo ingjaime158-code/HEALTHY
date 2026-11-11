@@ -351,6 +351,43 @@ export function serializeClientProfile(
 }
 
 /**
+ * Applies an updated serialized profile JSON onto a Business object so both
+ * `email` and top-level structured properties stay in sync during DB updates.
+ */
+export function applyProfileToBusiness<T extends Record<string, any>>(
+  biz: T,
+  updatedEmailJson: string,
+  overrides?: Partial<T>
+): T {
+  const parsed = parseClientProfile(updatedEmailJson);
+  const routeConfigs: Record<string, any> = {
+    ...(biz.routeConfigs || {}),
+    ...(parsed.Matutina ? { Matutina: parsed.Matutina } : {}),
+    ...(parsed.Vespertina ? { Vespertina: parsed.Vespertina } : {}),
+  };
+
+  return {
+    ...biz,
+    email: updatedEmailJson,
+    planType: parsed.planType,
+    plansCount: parsed.plansCount,
+    exclusions: parsed.exclusions,
+    siglas: parsed.siglas,
+    driver: parsed.driver,
+    isActive: parsed.isActive,
+    extraDishes: parsed.extraDishes,
+    tiempos: parsed.tiempos,
+    routeOrder: parsed.routeOrder,
+    package: parsed.package,
+    plans: parsed.plans,
+    accessCode: parsed.accessCode,
+    accessQr: parsed.accessQr,
+    routeConfigs,
+    ...overrides,
+  };
+}
+
+/**
  * Validates a coordinate string (e.g. "25.6866,-100.3161") and returns lat/lng numbers.
  * Returns default zeros if invalid.
  */

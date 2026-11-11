@@ -7,26 +7,31 @@ import { parseClientProfile } from '../../utils/clientProfile';
 let _structuredColumnsAvailable = false;
 
 function buildStructuredProfileColumns(business: Partial<Business>): Record<string, any> {
-    const profile = parseClientProfile(business as any);
+    const rawEmail = business.email || '';
+    const isJsonEmail = rawEmail.trim().startsWith('{') && rawEmail.trim().endsWith('}');
+    // When `email` carries a serialized JSON profile, prefer it over potentially stale
+    // top-level fields on spread `...business` objects.
+    const profile = isJsonEmail ? parseClientProfile(rawEmail) : parseClientProfile(business as any);
     const routeConfigs: Record<string, any> = {};
     if (profile.Matutina) routeConfigs.Matutina = profile.Matutina;
     if (profile.Vespertina) routeConfigs.Vespertina = profile.Vespertina;
 
-    const rawEmail = business.email || '';
     const isRealEmail = rawEmail.includes('@') && !rawEmail.trim().startsWith('{');
 
     return {
-        plan_type: business.planType ?? profile.planType ?? 'HEALTHY',
-        plans_count: business.plansCount ?? profile.plansCount ?? 1,
-        exclusions: business.exclusions ?? profile.exclusions ?? 'Ninguna',
-        siglas: business.siglas ?? profile.siglas ?? 'C',
-        driver: business.driver ?? profile.driver ?? 'SIN ASIGNAR',
-        is_active: business.isActive ?? profile.isActive ?? true,
-        extra_dishes: business.extraDishes ?? profile.extraDishes ?? 0,
-        tiempos: business.tiempos ?? profile.tiempos ?? 1,
-        route_order: business.routeOrder ?? profile.routeOrder ?? 9999,
-        package: business.package ?? profile.package ?? 'Comida',
-        plans: Array.isArray(business.plans) && business.plans.length > 0 ? business.plans : (profile.plans || []),
+        plan_type: (isJsonEmail ? profile.planType : business.planType ?? profile.planType) ?? 'HEALTHY',
+        plans_count: (isJsonEmail ? profile.plansCount : business.plansCount ?? profile.plansCount) ?? 1,
+        exclusions: (isJsonEmail ? profile.exclusions : business.exclusions ?? profile.exclusions) ?? 'Ninguna',
+        siglas: (isJsonEmail ? profile.siglas : business.siglas ?? profile.siglas) ?? 'C',
+        driver: (isJsonEmail ? profile.driver : business.driver ?? profile.driver) ?? 'SIN ASIGNAR',
+        is_active: (isJsonEmail ? profile.isActive : business.isActive ?? profile.isActive) ?? true,
+        extra_dishes: (isJsonEmail ? profile.extraDishes : business.extraDishes ?? profile.extraDishes) ?? 0,
+        tiempos: (isJsonEmail ? profile.tiempos : business.tiempos ?? profile.tiempos) ?? 1,
+        route_order: (isJsonEmail ? profile.routeOrder : business.routeOrder ?? profile.routeOrder) ?? 9999,
+        package: (isJsonEmail ? profile.package : business.package ?? profile.package) ?? 'Comida',
+        plans: isJsonEmail
+            ? (profile.plans || [])
+            : (Array.isArray(business.plans) && business.plans.length > 0 ? business.plans : (profile.plans || [])),
         route_configs: business.routeConfigs ?? routeConfigs,
         contact_email: business.contactEmail ?? (isRealEmail ? rawEmail : null)
     };
