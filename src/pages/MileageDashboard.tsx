@@ -14,6 +14,7 @@ import {
 } from '../services/routeMonitorService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { exportDeliveryHistoryExcel } from '../services/deliveryHistoryExportService';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -157,6 +158,7 @@ const MileageDashboard: React.FC = () => {
     const [viewMode, setViewMode] = useState<'charts' | 'table'>('charts');
     const [activeMetric, setActiveMetric] = useState<'totalKm' | 'routeKm' | 'customers'>('routeKm');
     const [calculating, setCalculating] = useState(false);
+    const [exportingDeliveryHistory, setExportingDeliveryHistory] = useState(false);
     const [calculationDate, setCalculationDate] = useState<string>(
         new Date().toISOString().split('T')[0]
     );
@@ -465,6 +467,18 @@ const MileageDashboard: React.FC = () => {
         }
     };
 
+    const handleExportDeliveryHistory = async () => {
+        if (exportingDeliveryHistory) return;
+        setExportingDeliveryHistory(true);
+        try {
+            await exportDeliveryHistoryExcel(selectedMonth);
+        } catch (err: any) {
+            alert(err?.message || "Error al exportar el historial de tiempos de entrega.");
+        } finally {
+            setExportingDeliveryHistory(false);
+        }
+    };
+
     // Función de exportación a PDF Premium Rediseñado y Agrupado por Fechas
     const handleExportPDF = () => {
         try {
@@ -696,6 +710,17 @@ const MileageDashboard: React.FC = () => {
                     >
                         <span className="material-symbols-outlined text-sm text-red-500">picture_as_pdf</span>
                         <span>PDF</span>
+                    </button>
+                    <button
+                        onClick={handleExportDeliveryHistory}
+                        disabled={exportingDeliveryHistory}
+                        className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer disabled:cursor-wait"
+                        title="Descargar hoja de cálculo Excel con tiempos de entrega por repartidor, ruta y día"
+                    >
+                        <span className={`material-symbols-outlined text-sm ${exportingDeliveryHistory ? 'animate-spin' : ''}`}>
+                            {exportingDeliveryHistory ? 'progress_activity' : 'table_view'}
+                        </span>
+                        <span>{exportingDeliveryHistory ? 'Generando Excel...' : 'Tiempos de Entrega (Excel)'}</span>
                     </button>
 
                     <select 
