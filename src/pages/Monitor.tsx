@@ -544,8 +544,23 @@ const FleetMonitor = () => {
         Object.keys(realtimePositions).forEach(id => {
             merged[id] = realtimePositions[id];
         });
+        // Fallback: si Android suspendió el GPS en segundo plano al usar Waze/Maps pero el chofer
+        // tiene una ruta en curso con entregas confirmadas hoy, anclar su pin en la última parada entregada
+        routeDrivers.forEach(rd => {
+            if (rd.driverId && !merged[rd.driverId] && rd.status === 'en_curso') {
+                const deliveredWithCoords = rd.clients.filter(c => c.isDelivered && c.lat && c.lng);
+                const lastDeliveredStop = deliveredWithCoords[deliveredWithCoords.length - 1];
+                if (lastDeliveredStop && lastDeliveredStop.lat && lastDeliveredStop.lng) {
+                    merged[rd.driverId] = {
+                        lat: lastDeliveredStop.lat,
+                        lng: lastDeliveredStop.lng,
+                        heading: 0,
+                    };
+                }
+            }
+        });
         return merged;
-    }, [initialDriverPositions, realtimePositions]);
+    }, [initialDriverPositions, realtimePositions, routeDrivers]);
 
 
     // ── Polling fallback: refresh GPS positions every 5s from DB ──────────

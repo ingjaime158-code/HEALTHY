@@ -35,6 +35,138 @@ interface OSRMRouteInfo {
     durationSeconds: number;
 }
 
+interface RouteStopPoint {
+    order: number;
+    name: string;
+    lat: number;
+    lng: number;
+}
+
+interface CachedOsrmLeg {
+    coords: [number, number][]; // [lat, lng][]
+    durationSeconds: number;
+    distanceMeters: number;
+}
+
+function parseCsvStops(csvText: string): Map<number, RouteStopPoint> {
+    const stops = new Map<number, RouteStopPoint>();
+    const rows: string[][] = [];
+    let currentRow: string[] = [];
+    let currentField = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < csvText.length; i++) {
+        const ch = csvText[i];
+        const next = csvText[i + 1];
+        if (inQuotes) {
+            if (ch === '"' && next === '"') {
+                currentField += '"';
+                i++;
+            } else if (ch === '"') {
+                inQuotes = false;
+            } else {
+                currentField += ch;
+            }
+        } else {
+            if (ch === '"') {
+                inQuotes = true;
+            } else if (ch === ',') {
+                currentRow.push(currentField.trim());
+                currentField = '';
+            } else if (ch === '\n' || (ch === '\r' && next === '\n')) {
+                currentRow.push(currentField.trim());
+                rows.push(currentRow);
+                currentRow = [];
+                currentField = '';
+                if (ch === '\r') i++;
+            } else if (ch !== '\r') {
+                currentField += ch;
+            }
+        }
+    }
+    if (currentField.length > 0 || currentRow.length > 0) {
+        currentRow.push(currentField.trim());
+        rows.push(currentRow);
+    }
+
+    const coordRegex = /^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/;
+    for (const row of rows) {
+        if (row.length < 2) continue;
+        const orderNum = parseInt(row[0], 10);
+        if (isNaN(orderNum) || orderNum < 0) continue;
+
+        let lat: number | null = null;
+        let lng: number | null = null;
+
+        // Check standard COORDENADAS column (index 5) first, then scan all columns
+        const candidateCols = [row[5], ...row];
+        for (const col of candidateCols) {
+            if (!col) continue;
+            const match = col.match(coordRegex);
+            if (match) {
+                const parsedLat = parseFloat(match[1]);
+                const parsedLng = parseFloat(match[2]);
+                if (!isNaN(parsedLat) && !isNaN(parsedLng) && Math.abs(parsedLat) <= 90 && Math.abs(parsedLng) <= 180) {
+                    lat = parsedLat;
+                    lng = parsedLng;
+                    break;
+                }
+            }
+        }
+
+        if (lat !== null && lng !== null) {
+            stops.set(orderNum, {
+                order: orderNum,
+                name: row[1] || `Parada ${orderNum}`,
+                lat,
+                lng,
+            });
+        }
+    }
+
+    return stops;
+}
+
+function interpolatePointAlongPolyline(
+    coords: [number, number][],
+    fraction: number
+): [number, number] {
+    if (coords.length === 0) return DEFAULT_CENTER;
+    if (coords.length === 1 || fraction <= 0) return coords[0];
+    if (fraction >= 1) return coords[coords.length - 1];
+
+    const segLengths: number[] = [];
+    let totalLen = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+        const d = getDistanceFromLatLonInKm(
+            coords[i][0],
+            coords[i][1],
+            coords[i + 1][0],
+            coords[i + 1][1]
+        );
+        segLengths.push(d);
+        totalLen += d;
+    }
+
+    if (totalLen <= 0) return coords[0];
+    const targetDist = totalLen * fraction;
+    let accum = 0;
+
+    for (let i = 0; i < segLengths.length; i++) {
+        const seg = segLengths[i];
+        if (accum + seg >= targetDist && seg > 0) {
+            const localT = (targetDist - accum) / seg;
+            return [
+                coords[i][0] + (coords[i + 1][0] - coords[i][0]) * localT,
+                coords[i][1] + (coords[i + 1][1] - coords[i][1]) * localT,
+            ];
+        }
+        accum += seg;
+    }
+
+    return coords[coords.length - 1];
+}
+
 export const ClientLiveTracking: React.FC = () => {
     const [searchParams] = useSearchParams();
     const driverId = searchParams.get('driver') || '';
@@ -121,6 +253,205 @@ export const ClientLiveTracking: React.FC = () => {
     const routeMainLayerRef = useRef<L.Polyline | null>(null);
     const routeDashedLayerRef = useRef<L.Polyline | null>(null);
     const hasInitialFittedRef = useRef(false);
+    const routeStopsCacheRef = useRef<Map<number, RouteStopPoint> | null>(null);
+    const osrmLegCacheRef = useRef<Map<string, CachedOsrmLeg>>(new Map());
+
+    const loadDriverRouteStops = useCallback(async (): Promise<Map<number, RouteStopPoint>> => {
+        if (routeStopsCacheRef.current && routeStopsCacheRef.current.size > 0) {
+            return routeStopsCacheRef.current;
+        }
+        const empty = new Map<number, RouteStopPoint>();
+        if (!driverId) return empty;
+
+        try {
+            const { data: profileData } = await supabase.rpc('driver_get_profile', {
+                p_driver_id: driverId,
+            });
+            const profile = Array.isArray(profileData) ? profileData[0] : profileData;
+            if (!profile) return empty;
+
+            const isMorning = routeType.toLowerCase().startsWith('m');
+            const sheetUrl: string =
+                (isMorning ? profile.morning_sheet_url : profile.evening_sheet_url) ||
+                profile.morning_sheet_url ||
+                profile.evening_sheet_url ||
+                '';
+
+            const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (!sheetIdMatch) return empty;
+            const sheetId = sheetIdMatch[1];
+            const gidMatch = sheetUrl.match(/gid=(\d+)/);
+            const gid = gidMatch ? gidMatch[1] : '0';
+
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&tcb=${Math.floor(Date.now() / 60000)}`;
+            const res = await fetch(csvUrl);
+            if (!res.ok) return empty;
+            const csvText = await res.text();
+            const parsed = parseCsvStops(csvText);
+            if (parsed.size > 0) {
+                routeStopsCacheRef.current = parsed;
+            }
+            return parsed;
+        } catch (e) {
+            console.warn('[ClientLiveTracking] No se pudo cargar hoja de paradas para fallback:', e);
+            return empty;
+        }
+    }, [driverId, routeType]);
+
+    const getCachedOsrmLeg = useCallback(async (from: [number, number], to: [number, number]): Promise<CachedOsrmLeg | null> => {
+        const key = `${from[0].toFixed(5)},${from[1].toFixed(5)}->${to[0].toFixed(5)},${to[1].toFixed(5)}`;
+        const cached = osrmLegCacheRef.current.get(key);
+        if (cached) return cached;
+
+        try {
+            const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`;
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                const r = data.routes[0];
+                const coords: [number, number][] = r.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
+                const leg: CachedOsrmLeg = {
+                    coords,
+                    durationSeconds: Number(r.duration) || 300,
+                    distanceMeters: Number(r.distance) || 1000,
+                };
+                osrmLegCacheRef.current.set(key, leg);
+                return leg;
+            }
+        } catch {}
+        return null;
+    }, []);
+
+    /**
+     * Cuando Android suspende el GPS en segundo plano al abrir Waze/Google Maps y `driver_locations`
+     * queda congelado en el local, reconstruye la ubicación real del repartidor a partir de su última
+     * entrega confirmada hoy (`delivery_logs`) y avanza sobre la ruta vial OSRM hacia la siguiente parada.
+     */
+    const resolveStaleGpsPosition = useCallback(async (
+        rawLat: number | null,
+        rawLng: number | null,
+        lastUpdatedIso: string | null
+    ): Promise<{ lat: number | null; lng: number | null }> => {
+        const gpsTimeMs = lastUpdatedIso ? new Date(lastUpdatedIso).getTime() : 0;
+        const gpsAgeMs = gpsTimeMs > 0 ? Math.max(0, Date.now() - gpsTimeMs) : Infinity;
+
+        // Si el GPS reportó hace menos de 2 minutos, usar la coordenada GPS directa sin tocar nada
+        if (rawLat && rawLng && gpsAgeMs <= 120_000) {
+            return { lat: Number(rawLat), lng: Number(rawLng) };
+        }
+
+        const stopsMap = await loadDriverRouteStops();
+        const stopKeys: number[] = Array.from(stopsMap.keys());
+        const maxSheetOrder = stopKeys.length > 0
+            ? Math.max(...stopKeys.filter((k: number) => k > 0), clientOrder)
+            : Math.max(clientOrder, 15);
+
+        const maxOrderToScan = Math.min(Math.max(maxSheetOrder, 1), 35);
+        const ordersToCheck: number[] = [];
+        for (let o = 1; o <= maxOrderToScan; o++) {
+            ordersToCheck.push(o);
+        }
+
+        const statusResults = await Promise.all(
+            ordersToCheck.map(async (ord) => {
+                try {
+                    const { data } = await supabase.rpc('get_public_delivery_tracking', {
+                        p_driver_id: driverId,
+                        p_client_order: ord,
+                        p_route_type: routeType,
+                        p_delivery_date: effectiveDate,
+                    });
+                    const r = Array.isArray(data) ? data[0] : null;
+                    return {
+                        order: ord,
+                        isDelivered: Boolean(r?.is_delivered),
+                        deliveredAt: (r?.delivered_at as string | null) || null,
+                    };
+                } catch {
+                    return { order: ord, isDelivered: false, deliveredAt: null };
+                }
+            })
+        );
+
+        const deliveredStops = statusResults.filter(s => s.isDelivered);
+        deliveredStops.sort((a, b) => {
+            const tA = a.deliveredAt ? new Date(a.deliveredAt).getTime() : 0;
+            const tB = b.deliveredAt ? new Date(b.deliveredAt).getTime() : 0;
+            if (tB !== tA) return tB - tA;
+            return b.order - a.order;
+        });
+
+        const latestDelivered = deliveredStops[0] || null;
+        const latestDeliveredMs = latestDelivered?.deliveredAt
+            ? new Date(latestDelivered.deliveredAt).getTime()
+            : 0;
+
+        // Determinar punto de partida confirmado (última entrega de hoy o local si aún va hacia el cliente #1)
+        let anchorCoords: [number, number] | null = null;
+        let anchorTimeMs = gpsTimeMs;
+
+        if (latestDelivered && (latestDeliveredMs > gpsTimeMs || gpsAgeMs > 120_000)) {
+            const stopInfo = stopsMap.get(latestDelivered.order);
+            if (stopInfo) {
+                anchorCoords = [stopInfo.lat, stopInfo.lng];
+                anchorTimeMs = latestDeliveredMs || Date.now();
+            }
+        }
+
+        if (!anchorCoords) {
+            const baseStop = stopsMap.get(0);
+            if (rawLat && rawLng) {
+                anchorCoords = [Number(rawLat), Number(rawLng)];
+            } else if (baseStop) {
+                anchorCoords = [baseStop.lat, baseStop.lng];
+            }
+        }
+
+        if (!anchorCoords) {
+            return { lat: rawLat ? Number(rawLat) : null, lng: rawLng ? Number(rawLng) : null };
+        }
+
+        // Determinar cuál es la siguiente parada activa a la que se dirige el repartidor
+        const highestDeliveredOrder = latestDelivered ? latestDelivered.order : 0;
+        const nextPendingStatus = statusResults.find(
+            s => !s.isDelivered && s.order > highestDeliveredOrder
+        ) || statusResults.find(s => !s.isDelivered);
+
+        let targetCoords: [number, number] | null = null;
+        if (nextPendingStatus) {
+            const nextStopInfo = stopsMap.get(nextPendingStatus.order);
+            if (nextStopInfo) {
+                targetCoords = [nextStopInfo.lat, nextStopInfo.lng];
+            } else if (nextPendingStatus.order === clientOrder && destCoords) {
+                targetCoords = destCoords;
+            }
+        } else if (destCoords) {
+            targetCoords = destCoords;
+        }
+
+        if (!targetCoords) {
+            return { lat: anchorCoords[0], lng: anchorCoords[1] };
+        }
+
+        const elapsedSec = anchorTimeMs > 0 ? Math.max(0, (Date.now() - anchorTimeMs) / 1000) : 0;
+        const leg = await getCachedOsrmLeg(anchorCoords, targetCoords);
+
+        if (leg && leg.coords.length > 1) {
+            const travelReadySec = Math.max(0, elapsedSec - 25);
+            const expectedDuration = Math.max(150, leg.durationSeconds);
+            const fraction = Math.min(0.88, Math.max(0, travelReadySec / expectedDuration));
+            const [interpLat, interpLng] = interpolatePointAlongPolyline(leg.coords, fraction);
+            return { lat: interpLat, lng: interpLng };
+        }
+
+        // Fallback lineal si OSRM no responde
+        const fallbackFraction = Math.min(0.85, Math.max(0, (elapsedSec - 25) / 480));
+        return {
+            lat: anchorCoords[0] + (targetCoords[0] - anchorCoords[0]) * fallbackFraction,
+            lng: anchorCoords[1] + (targetCoords[1] - anchorCoords[1]) * fallbackFraction,
+        };
+    }, [driverId, routeType, effectiveDate, clientOrder, destCoords, loadDriverRouteStops, getCachedOsrmLeg]);
 
     // Cierre permanente e irrevocable de la sesión de rastreo al finalizar entrega
     const lockPermanentlyAsDelivered = useCallback((payload: {
@@ -246,13 +577,21 @@ export const ClientLiveTracking: React.FC = () => {
                     return;
                 }
 
+                const resolved = await resolveStaleGpsPosition(
+                    row.lat ? Number(row.lat) : null,
+                    row.lng ? Number(row.lng) : null,
+                    row.last_updated || null
+                );
+
+                if (isDeliveredRef.current) return;
+
                 setTracking({
                     isDelivered: false,
                     deliveredAt: null,
                     driverName: row.driver_name || 'Repartidor Healthy Dream',
                     clientName: row.client_name || clientNameParam || 'Cliente',
-                    lat: row.lat,
-                    lng: row.lng,
+                    lat: resolved.lat,
+                    lng: resolved.lng,
                     heading: Number(row.heading) || 0,
                     lastUpdated: row.last_updated,
                 });
@@ -269,13 +608,21 @@ export const ClientLiveTracking: React.FC = () => {
 
             if (isDeliveredRef.current) return;
 
+            const fallbackResolved = await resolveStaleGpsPosition(
+                locData ? Number(locData.lat) : null,
+                locData ? Number(locData.lng) : null,
+                locData ? locData.updated_at : null
+            );
+
+            if (isDeliveredRef.current) return;
+
             setTracking({
                 isDelivered: false,
                 deliveredAt: null,
                 driverName: 'Repartidor Healthy Dream',
                 clientName: clientNameParam || 'Cliente',
-                lat: locData ? Number(locData.lat) : null,
-                lng: locData ? Number(locData.lng) : null,
+                lat: fallbackResolved.lat,
+                lng: fallbackResolved.lng,
                 heading: locData ? Number(locData.heading) || 0 : 0,
                 lastUpdated: locData ? locData.updated_at : null,
             });
@@ -284,7 +631,7 @@ export const ClientLiveTracking: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [driverId, clientOrder, routeType, dateParam, clientNameParam, lockPermanentlyAsDelivered]);
+    }, [driverId, clientOrder, routeType, dateParam, clientNameParam, effectiveDate, today, lockPermanentlyAsDelivered, resolveStaleGpsPosition]);
 
     // Cargar inicial y escuchar canal Realtime
     useEffect(() => {
