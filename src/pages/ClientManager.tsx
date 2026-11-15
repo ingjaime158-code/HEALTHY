@@ -1706,12 +1706,15 @@ const ClientManager: React.FC = () => {
     }
   };
 
-  // Dynamic extraction of unique drivers and plan types
+  // Dynamic extraction of unique drivers and plan types (sanitized to avoid oversized select options)
   const uniqueDrivers = useMemo(() => {
     const drivers = new Set<string>();
     parsedClients.forEach(biz => {
       if (biz.driver) {
-        drivers.add(biz.driver.toUpperCase().trim());
+        const clean = biz.driver.toUpperCase().trim();
+        if (clean && clean.length <= 28 && !clean.includes('{') && !clean.includes('@')) {
+          drivers.add(clean);
+        }
       }
     });
     return ['TODOS', ...Array.from(drivers).sort()];
@@ -1721,7 +1724,21 @@ const ClientManager: React.FC = () => {
     const plans = new Set<string>();
     parsedClients.forEach(biz => {
       if (biz.planType) {
-        plans.add(biz.planType.toUpperCase().trim());
+        biz.planType
+          .split('+')
+          .map((p: string) => p.toUpperCase().trim())
+          .forEach((clean: string) => {
+            if (
+              clean &&
+              clean.length <= 28 &&
+              !clean.includes('{') &&
+              !clean.includes(':') &&
+              !clean.includes('@') &&
+              !clean.includes('/')
+            ) {
+              plans.add(clean);
+            }
+          });
       }
     });
     return ['TODOS', ...Array.from(plans).sort()];
@@ -1738,73 +1755,151 @@ const ClientManager: React.FC = () => {
 
   // Filter and sort clients dynamically based on multiple criteria
   const filteredClients = useMemo(() => {
-    // 1. Apply filters
-    const filtered = parsedClients.filter(biz => {
-      // Route filter
+    // 1. Apply route, status, driver, and plan dropdown filters first
+    const baseFiltered = parsedClients.filter(biz => {
       if (biz.routeType !== selectedRoute) return false;
 
-      // Status filter
       const targetActive = selectedStatus === 'ACTIVE';
       if (biz.isActive !== targetActive) return false;
 
-      // Driver filter
       if (driverFilter !== 'TODOS' && biz.driver.toUpperCase() !== driverFilter.toUpperCase()) return false;
 
-      // Plan filter
       if (planFilter !== 'TODOS' && !biz.planType.toUpperCase().includes(planFilter.toUpperCase())) return false;
-
-      // Search match
-      if (searchQuery) {
-        const query = removeAccents(searchQuery.toLowerCase());
-        const nameMatch = removeAccents((biz.name || '').toLowerCase()).includes(query);
-        const addressMatch = removeAccents((biz.location || '').toLowerCase()).includes(query);
-        const planMatch = removeAccents(biz.planType.toLowerCase()).includes(query);
-        const driverMatch = removeAccents(biz.driver.toLowerCase()).includes(query);
-        return nameMatch || addressMatch || planMatch || driverMatch;
-      }
 
       return true;
     });
 
-    // 2. Sort list
-    if (sortField) {
-      filtered.sort((a, b) => {
-        let valA: any = '';
-        let valB: any = '';
+    // 2. Apply smart search query (prioritizing client first/second name by word start)
+    let filtered = baseFiltered;
+    const scoreMap = new Map<string, number>();
 
-        if (sortField === 'name') {
-          valA = a.name || '';
-          valB = b.name || '';
-        } else if (sortField === 'plan') {
-          valA = a.planType || '';
-          valB = b.planType || '';
-        } else if (sortField === 'tiempos') {
-          valA = a.tiempos || 0;
-          valB = b.tiempos || 0;
-        } else if (sortField === 'bags') {
-          valA = a.bags || 0;
-          valB = b.bags || 0;
-        } else if (sortField === 'driver') {
-          valA = a.driver || '';
-          valB = b.driver || '';
-        } else if (sortField === 'status') {
-          valA = a.isActive ? 1 : 0;
-          valB = b.isActive ? 1 : 0;
-        } else if (sortField === 'routeOrder') {
-          valA = a.routeOrder !== undefined ? a.routeOrder : 9999;
-          valB = b.routeOrder !== undefined ? b.routeOrder : 9999;
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery) {
+      const fullQuery = removeAccents(trimmedQuery.toLowerCase());
+      const queryTokens = fullQuery.split(/\s+/).filter(Boolean);
+      const queryDigits = trimmedQuery.replace(/\D/g, '');
+
+      const getNameMatchScore = (biz: any): number => {
+        const rawName = removeAccents((biz.name || '').toLowerCase()).trim();
+        if (!rawName) return 0;
+
+        // Also support multi-person cards ("Maria & Betsy")
+        const candidateNames: string[] = [
+          rawName,
+          ...((biz.subNames || []) as string[]).map(s => removeAccents(String(s || '').toLowerCase()).trim()),
+        ].filter(Boolean);
+
+        let bestScore = 0;
+
+        for (const cand of candidateNames) {
+          const words = cand.split(/[^a-z0-9]+/).filter(Boolean);
+          if (words.length === 0) continue;
+
+          // Exact start of the client's name (e.g. typing "Ana" or "Ana Sofia" matches "Ana Sofia..." first)
+          if (cand.startsWith(fullQuery)) {
+            bestScore = Math.max(bestScore, 100);
+            continue;
+          }
+
+          // Every typed word matches the beginning of a word in the client's name
+          const allTokensMatchWordStart = queryTokens.every(token =>
+            words.some(w => w.startsWith(token))
+          );
+          if (allTokensMatchWordStart) {
+            const matchesFirstWord = words[0].startsWith(queryTokens[0]);
+            bestScore = Math.max(bestScore, matchesFirstWord ? 90 : 75);
+            continue;
+          }
+
+          // Substring fallback inside name (only used if no word-start matches exist)
+          const allTokensInName = queryTokens.every(token => cand.includes(token));
+          if (allTokensInName) {
+            bestScore = Math.max(bestScore, 40);
+          }
         }
 
-        let comparison = 0;
-        if (typeof valA === 'number' && typeof valB === 'number') {
-          comparison = valA - valB;
+        // Phone number search if user typed digits
+        if (bestScore === 0 && queryDigits.length >= 3) {
+          const phoneDigits = String(biz.phone || '').replace(/\D/g, '');
+          if (phoneDigits.includes(queryDigits)) {
+            bestScore = 60;
+          }
+        }
+
+        return bestScore;
+      };
+
+      const scored = baseFiltered.map(biz => ({
+        biz,
+        score: getNameMatchScore(biz),
+      }));
+
+      // If there are word-start matches on client name (score >= 60), show ONLY those so typing a first name
+      // like "Ana", "Luis", or "Pedro" doesn't get polluted by surnames ("Santana"), driver names, or addresses ("San Pedro")
+      const strongNameMatches = scored.filter(item => item.score >= 60);
+      if (strongNameMatches.length > 0) {
+        strongNameMatches.forEach(item => scoreMap.set(item.biz.id, item.score));
+        filtered = strongNameMatches.map(item => item.biz);
+      } else {
+        const substringNameMatches = scored.filter(item => item.score > 0);
+        if (substringNameMatches.length > 0) {
+          substringNameMatches.forEach(item => scoreMap.set(item.biz.id, item.score));
+          filtered = substringNameMatches.map(item => item.biz);
         } else {
-          comparison = String(valA).localeCompare(String(valB), 'es', { numeric: true, sensitivity: 'base' });
+          // Fallback to address search only when no client name/phone matches the query
+          filtered = baseFiltered.filter(biz => {
+            const addr = removeAccents((biz.location || '').toLowerCase());
+            return queryTokens.every(token => addr.includes(token));
+          });
         }
-
-        return sortDirection === 'asc' ? comparison : -comparison;
-      });
+      }
     }
+
+    // 3. Sort list (when searching, rank best name match first, then by selected sortField)
+    filtered.sort((a, b) => {
+      if (trimmedQuery) {
+        const sA = scoreMap.get(a.id) || 0;
+        const sB = scoreMap.get(b.id) || 0;
+        if (sB !== sA) return sB - sA;
+      }
+
+      if (!sortField) return 0;
+
+      let valA: any = '';
+      let valB: any = '';
+
+      if (sortField === 'name') {
+        valA = a.name || '';
+        valB = b.name || '';
+      } else if (sortField === 'plan') {
+        valA = a.planType || '';
+        valB = b.planType || '';
+      } else if (sortField === 'tiempos') {
+        valA = a.tiempos || 0;
+        valB = b.tiempos || 0;
+      } else if (sortField === 'bags') {
+        valA = a.bags || 0;
+        valB = b.bags || 0;
+      } else if (sortField === 'driver') {
+        valA = a.driver || '';
+        valB = b.driver || '';
+      } else if (sortField === 'status') {
+        valA = a.isActive ? 1 : 0;
+        valB = b.isActive ? 1 : 0;
+      } else if (sortField === 'routeOrder') {
+        valA = a.routeOrder !== undefined ? a.routeOrder : 9999;
+        valB = b.routeOrder !== undefined ? b.routeOrder : 9999;
+      }
+
+      let comparison = 0;
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        comparison = valA - valB;
+      } else {
+        comparison = String(valA).localeCompare(String(valB), 'es', { numeric: true, sensitivity: 'base' });
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
 
     return filtered;
   }, [parsedClients, searchQuery, selectedRoute, selectedStatus, driverFilter, planFilter, sortField, sortDirection]);
@@ -2217,41 +2312,38 @@ const ClientManager: React.FC = () => {
             </div>
 
             {/* BUSCADOR PROMINENTE Y FILTROS AVANZADOS */}
-            <div className="flex flex-col lg:flex-row items-center justify-between gap-3 bg-white border border-slate-200/90 p-2.5 px-4 rounded-xl shadow-sm">
-              {/* Buscador Prominente */}
-              <div className="relative w-full lg:max-w-md flex-1">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-purple-600 text-[18px]">search</span>
+            <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200/90 p-2 rounded-xl shadow-sm overflow-hidden">
+              {/* Buscador Prominente (siempre visible y con ancho mínimo garantizado) */}
+              <div className="relative flex-1 min-w-[200px]">
+                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-purple-600 text-[17px] pointer-events-none">search</span>
                 <input
                   type="text"
-                  placeholder="🔍 Buscar cliente por nombre, dirección o teléfono..."
-                  className="w-full pl-9 pr-9 py-2 text-xs border border-purple-200 focus:border-purple-600 bg-slate-50 focus:bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all font-semibold text-slate-800 shadow-inner"
+                  placeholder="Buscar cliente por nombre, teléfono o dirección..."
+                  className="w-full pl-9 pr-8 py-1.5 text-xs border border-purple-200 focus:border-purple-600 bg-slate-50 focus:bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all font-semibold text-slate-800 shadow-inner"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors"
+                    title="Borrar búsqueda"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[16px]">close</span>
+                    <span className="material-symbols-outlined text-[15px]">close</span>
                   </button>
                 )}
               </div>
 
-              {/* Filtros Dropdown */}
-              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5 shrink-0 select-none">
-                  <span className="material-symbols-outlined text-[14px] text-purple-650">filter_alt</span>
-                  Filtros:
-                </span>
-                
+              {/* Filtros Dropdown compactos con ancho máximo controlado */}
+              <div className="flex items-center gap-1.5 shrink-0 max-w-full">
                 {/* Repartidor Select Dropdown */}
-                <div className="relative flex-1 sm:flex-none min-w-[160px]">
-                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-650 text-[14px]">sports_motorsports</span>
+                <div className="relative w-[132px] sm:w-[148px] shrink-0">
+                  <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-purple-650 text-[14px] pointer-events-none">sports_motorsports</span>
                   <select
                     value={driverFilter}
                     onChange={(e) => setDriverFilter(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
+                    title="Filtrar por repartidor"
+                    className="w-full truncate bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-7 pr-6 py-1.5 text-[10px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
                   >
                     {uniqueDrivers.map(driver => (
                       <option key={driver} value={driver}>
@@ -2259,16 +2351,17 @@ const ClientManager: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[14px]">unfold_more</span>
+                  <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[14px]">unfold_more</span>
                 </div>
 
                 {/* Plan Select Dropdown */}
-                <div className="relative flex-1 sm:flex-none min-w-[160px]">
-                  <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-650 text-[14px]">restaurant</span>
+                <div className="relative w-[128px] sm:w-[144px] shrink-0">
+                  <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-purple-650 text-[14px] pointer-events-none">restaurant</span>
                   <select
                     value={planFilter}
                     onChange={(e) => setPlanFilter(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-[11px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
+                    title="Filtrar por tipo de plan"
+                    className="w-full truncate bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-lg pl-7 pr-6 py-1.5 text-[10px] font-bold text-slate-700 focus:outline-none transition-all appearance-none cursor-pointer shadow-sm"
                   >
                     {uniquePlans.map(plan => (
                       <option key={plan} value={plan}>
@@ -2276,10 +2369,10 @@ const ClientManager: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">unfold_more</span>
+                  <span className="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[14px]">unfold_more</span>
                 </div>
-                
-                {/* Limpiar Filtros Button */}
+
+                {/* Limpiar Filtros Button (compacto) */}
                 {(driverFilter !== 'TODOS' || planFilter !== 'TODOS' || searchQuery !== '') && (
                   <button
                     onClick={() => {
@@ -2287,10 +2380,10 @@ const ClientManager: React.FC = () => {
                       setPlanFilter('TODOS');
                       setSearchQuery('');
                     }}
-                    className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all hover:-translate-y-0.5 active:scale-95 shadow-sm cursor-pointer"
+                    title="Limpiar filtros y búsqueda"
+                    className="flex items-center justify-center w-8 h-8 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg transition-all hover:-translate-y-0.5 active:scale-95 shadow-sm cursor-pointer shrink-0"
                   >
-                    <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
-                    Limpiar
+                    <span className="material-symbols-outlined text-[16px]">filter_alt_off</span>
                   </button>
                 )}
               </div>
