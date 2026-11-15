@@ -2104,75 +2104,98 @@ const ClientManager: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Sincronizar Excel Button */}
-                <button
-                  onClick={handleGoogleSheetsSync}
-                  disabled={isSyncingSheets}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shrink-0 ${
-                    isSyncingSheets 
-                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-emerald-50 border-emerald-100 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-200 hover:-translate-y-0.5 active:scale-95 shadow-sm'
-                  }`}
-                  title="Sincronizar cambios manuales de Excel (rutas/inactivos) a la base de datos"
-                >
-                  <span className={`material-symbols-outlined text-[14px] ${isSyncingSheets ? 'animate-spin' : ''}`}>sync</span>
-                  {isSyncingSheets ? 'Sincronizando...' : 'Sincronizar con Excel'}
-                </button>
+                {/* Botones de acción compactos (solo icono + tooltip intuitivo) */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* 1. Sincronizar con Excel */}
+                  <button
+                    onClick={handleGoogleSheetsSync}
+                    disabled={isSyncingSheets}
+                    aria-label="Sincronizar con Excel"
+                    title="Sincronizar con Excel (traer cambios manuales de rutas/inactivos)"
+                    className={`group relative flex items-center justify-center w-9 h-9 border rounded-xl transition-all shrink-0 ${
+                      isSyncingSheets
+                        ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-emerald-50 border-emerald-200/80 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 active:scale-95 shadow-sm cursor-pointer'
+                    }`}
+                  >
+                    <span className={`material-symbols-outlined text-[19px] ${isSyncingSheets ? 'animate-spin' : ''}`}>sync</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      {isSyncingSheets ? 'Sincronizando...' : 'Sincronizar con Excel'}
+                    </span>
+                  </button>
 
-                {/* Botón IA Sugerencia Inteligente */}
-                <button
-                  onClick={() => setIsAiModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 border-indigo-400 text-white hover:from-emerald-500 hover:to-indigo-500 hover:border-indigo-300 hover:-translate-y-0.5 active:scale-95 shadow-md shadow-indigo-500/20 shrink-0 cursor-pointer"
-                  title="Analizar el historial de telemetría de IA y generar la pre-asignación y ruta óptima"
-                >
-                  <span className="material-symbols-outlined text-[14px]">psychology</span>
-                  🤖 Sugerencia Inteligente IA
-                </button>
+                  {/* 2. Sugerencia Inteligente IA */}
+                  <button
+                    onClick={() => setIsAiModalOpen(true)}
+                    aria-label="Sugerencia Inteligente IA"
+                    title="Sugerencia Inteligente IA (pre-asignación y ruta óptima)"
+                    className="group relative flex items-center justify-center w-9 h-9 border rounded-xl transition-all bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 border-indigo-400 text-white hover:from-emerald-500 hover:to-indigo-500 hover:border-indigo-300 hover:-translate-y-0.5 active:scale-95 shadow-md shadow-indigo-500/20 shrink-0 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[19px]">psychology</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      Sugerencia Inteligente IA
+                    </span>
+                  </button>
 
-                {/* Optimizar Rutas Button */}
-                <button
-                  onClick={() => setIsOptimizeModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100 text-blue-700 hover:from-blue-100 hover:to-indigo-100 hover:border-blue-200 hover:-translate-y-0.5 active:scale-95 shadow-sm shadow-blue-100 shrink-0"
-                  title="Optimizar la secuencia de entrega para cada chofer de forma automática y visual"
-                >
-                  <span className="material-symbols-outlined text-[14px]">map</span>
-                  Optimizar Rutas
-                </button>
+                  {/* 3. Optimizar Rutas */}
+                  <button
+                    onClick={() => setIsOptimizeModalOpen(true)}
+                    aria-label="Optimizar Rutas"
+                    title="Optimizar Rutas (secuencia de entrega para cada chofer)"
+                    className="group relative flex items-center justify-center w-9 h-9 border rounded-xl transition-all bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200/80 text-blue-700 hover:from-blue-100 hover:to-indigo-100 hover:border-blue-300 hover:-translate-y-0.5 active:scale-95 shadow-sm shrink-0 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[19px]">route</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      Optimizar Rutas
+                    </span>
+                  </button>
 
-                {/* Distribute Drivers Sheets Button */}
-                <button
-                  onClick={handleDistributeSheets}
-                  disabled={isDistributing}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shrink-0 ${
-                    isDistributing 
-                      ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-100 text-purple-700 hover:from-purple-100 hover:to-indigo-100 hover:border-purple-200 hover:-translate-y-0.5 active:scale-95 shadow-sm shadow-purple-100'
-                  }`}
-                  title="Llenar y actualizar automáticamente las hojas de cálculo individuales de cada repartidor asignado en esta ruta"
-                >
-                  <span className={`material-symbols-outlined text-[14px] ${isDistributing ? 'animate-spin' : ''}`}>auto_awesome</span>
-                  {isDistributing ? 'Distribuyendo...' : 'Distribuir Hojas'}
-                </button>
+                  {/* 4. Distribuir Hojas */}
+                  <button
+                    onClick={handleDistributeSheets}
+                    disabled={isDistributing}
+                    aria-label="Distribuir Hojas"
+                    title="Distribuir Hojas a cada repartidor asignado en esta ruta"
+                    className={`group relative flex items-center justify-center w-9 h-9 border rounded-xl transition-all shrink-0 ${
+                      isDistributing
+                        ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200/80 text-purple-700 hover:from-purple-100 hover:to-indigo-100 hover:border-purple-300 hover:-translate-y-0.5 active:scale-95 shadow-sm cursor-pointer'
+                    }`}
+                  >
+                    <span className={`material-symbols-outlined text-[19px] ${isDistributing ? 'animate-spin' : ''}`}>auto_awesome</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      {isDistributing ? 'Distribuyendo...' : 'Distribuir Hojas'}
+                    </span>
+                  </button>
 
-                {/* Descargar Ruta Matutina Button */}
-                <button
-                  onClick={() => handleDownloadCSV('Matutina')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100 hover:border-blue-200 hover:-translate-y-0.5 active:scale-95 shadow-sm rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shrink-0"
-                  title="Descargar lista de todos los clientes activos de la Ruta Matutina en CSV"
-                >
-                  <span className="material-symbols-outlined text-[14px]">wb_twilight</span>
-                  Descargar Matutina (CSV)
-                </button>
+                  {/* 5. Descargar Matutina (CSV) */}
+                  <button
+                    onClick={() => handleDownloadCSV('Matutina')}
+                    aria-label="Descargar Matutina (CSV)"
+                    title="Descargar Matutina (CSV)"
+                    className="group relative flex items-center justify-center w-9 h-9 bg-blue-50 border border-blue-200/80 text-blue-700 hover:bg-blue-100 hover:border-blue-300 hover:-translate-y-0.5 active:scale-95 shadow-sm rounded-xl transition-all shrink-0 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">wb_twilight</span>
+                    <span className="material-symbols-outlined text-[11px] absolute bottom-0.5 right-0.5 bg-blue-600 text-white rounded-full p-[1px] leading-none">download</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      Descargar Matutina (CSV)
+                    </span>
+                  </button>
 
-                {/* Descargar Ruta Vespertina Button */}
-                <button
-                  onClick={() => handleDownloadCSV('Vespertina')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-100 text-amber-700 hover:bg-amber-100 hover:border-amber-200 hover:-translate-y-0.5 active:scale-95 shadow-sm rounded-lg text-[9px] font-black uppercase tracking-widest transition-all shrink-0"
-                  title="Descargar lista de todos los clientes activos de la Ruta Vespertina en CSV"
-                >
-                  <span className="material-symbols-outlined text-[14px]">wb_sunny</span>
-                  Descargar Vespertina (CSV)
-                </button>
+                  {/* 6. Descargar Vespertina (CSV) */}
+                  <button
+                    onClick={() => handleDownloadCSV('Vespertina')}
+                    aria-label="Descargar Vespertina (CSV)"
+                    title="Descargar Vespertina (CSV)"
+                    className="group relative flex items-center justify-center w-9 h-9 bg-amber-50 border border-amber-200/80 text-amber-700 hover:bg-amber-100 hover:border-amber-300 hover:-translate-y-0.5 active:scale-95 shadow-sm rounded-xl transition-all shrink-0 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">wb_sunny</span>
+                    <span className="material-symbols-outlined text-[11px] absolute bottom-0.5 right-0.5 bg-amber-600 text-white rounded-full p-[1px] leading-none">download</span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                      Descargar Vespertina (CSV)
+                    </span>
+                  </button>
+                </div>
               </div>
 
             </div>
