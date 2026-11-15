@@ -2045,67 +2045,85 @@ const ClientManager: React.FC = () => {
         <div className="pt-4 space-y-5">
           
           {/* ── MENUS & FILTERS ────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             
-            {/* PRIMARY TABS: Route Selector */}
-            <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100 gap-1">
-              <button
-                onClick={() => setSelectedRoute('Matutina')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-                  selectedRoute === 'Matutina'
-                    ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/10'
-                    : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">wb_twilight</span>
-                Ruta Matutina (L/J)
-              </button>
-              <button
-                onClick={() => setSelectedRoute('Vespertina')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-                  selectedRoute === 'Vespertina'
-                    ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md shadow-amber-500/10'
-                    : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">wb_sunny</span>
-                Ruta Vespertina (D/M)
-              </button>
-            </div>
-
-            {/* SECONDARY SUBMENU & SEARCH */}
-            <div className="flex flex-col xl:flex-row gap-4 justify-between items-stretch xl:items-center">
+            {/* BARRA UNIFICADA EN UNA SOLA LÍNEA: Ruta (Matutina/Vespertina) + Estado (Activos/Inactivos) + Acciones */}
+            <div className="flex flex-wrap items-center gap-2 bg-slate-50/80 p-1.5 rounded-xl border border-slate-200/70">
               
-              {/* Secondary Submenu Group with Sync and Distribute Buttons */}
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 self-start xl:self-auto">
-                {/* Secondary Submenu: Activos / Inactivos capsule-tabs */}
-                <div className="flex bg-slate-100/70 p-0.5 rounded-lg border border-slate-200/50 gap-0.5 shrink-0">
-                  <button
-                    onClick={() => setSelectedStatus('ACTIVE')}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
-                      selectedStatus === 'ACTIVE'
-                        ? 'bg-white text-emerald-650 shadow-sm border border-emerald-100'
-                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
-                    }`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
-                    Activos
-                  </button>
-                  <button
-                    onClick={() => setSelectedStatus('INACTIVE')}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
-                      selectedStatus === 'INACTIVE'
-                        ? 'bg-white text-rose-650 shadow-sm border border-rose-100'
-                        : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
-                    }`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span>
-                    Inactivos
-                  </button>
-                </div>
+              {/* 1. Selector de Ruta (Matutina / Vespertina) — solo icono */}
+              <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200/80 gap-1 shadow-xs shrink-0">
+                <button
+                  onClick={() => setSelectedRoute('Matutina')}
+                  aria-label="Ruta Matutina (L/J)"
+                  title="Ruta Matutina (Lunes y Jueves)"
+                  className={`group relative flex items-center justify-center w-9 h-8 rounded-md transition-all cursor-pointer ${
+                    selectedRoute === 'Matutina'
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-500/20'
+                      : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50/60'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[19px]">wb_twilight</span>
+                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                    Ruta Matutina (L/J)
+                  </span>
+                </button>
 
-                {/* Botones de acción compactos (solo icono + tooltip intuitivo) */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => setSelectedRoute('Vespertina')}
+                  aria-label="Ruta Vespertina (D/M)"
+                  title="Ruta Vespertina (Domingo y Miércoles)"
+                  className={`group relative flex items-center justify-center w-9 h-8 rounded-md transition-all cursor-pointer ${
+                    selectedRoute === 'Vespertina'
+                      ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-sm shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50/60'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[19px]">wb_sunny</span>
+                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                    Ruta Vespertina (D/M)
+                  </span>
+                </button>
+              </div>
+
+              {/* 2. Selector de Estado (Activos / Inactivos) — solo icono */}
+              <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200/80 gap-1 shadow-xs shrink-0">
+                <button
+                  onClick={() => setSelectedStatus('ACTIVE')}
+                  aria-label="Clientes Activos"
+                  title="Ver Clientes Activos"
+                  className={`group relative flex items-center justify-center w-9 h-8 rounded-md transition-all cursor-pointer ${
+                    selectedStatus === 'ACTIVE'
+                      ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/25'
+                      : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/60'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                    Activos
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedStatus('INACTIVE')}
+                  aria-label="Clientes Inactivos"
+                  title="Ver Clientes Inactivos"
+                  className={`group relative flex items-center justify-center w-9 h-8 rounded-md transition-all cursor-pointer ${
+                    selectedStatus === 'INACTIVE'
+                      ? 'bg-rose-500 text-white shadow-sm shadow-rose-500/25'
+                      : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50/60'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">cancel</span>
+                  <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-bold text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+                    Inactivos
+                  </span>
+                </button>
+              </div>
+
+              <div className="h-6 w-px bg-slate-200/90 hidden sm:block shrink-0" />
+
+              {/* 3. Botones de acción compactos (solo icono + tooltip intuitivo) */}
+              <div className="flex items-center gap-1.5 shrink-0">
                   {/* 1. Sincronizar con Excel */}
                   <button
                     onClick={handleGoogleSheetsSync}
@@ -2196,8 +2214,6 @@ const ClientManager: React.FC = () => {
                     </span>
                   </button>
                 </div>
-              </div>
-
             </div>
 
             {/* BUSCADOR PROMINENTE Y FILTROS AVANZADOS */}
